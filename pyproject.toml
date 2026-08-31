@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ps26147_toolkit"
+version = "0.1.0"
+description = "Automated .IQ and .wav analysis + signal parameter extraction toolkit for SIH 2026 PS26147"
+authors = [{name = "Your Name", email = "you@example.com"}]
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.9"
+dependencies = [
+    "numpy",
+    "scipy",
+    "matplotlib",
+    "pandas",
+    "scikit-learn",
+    "torch",
+    "torchvision",
+    "librosa",
+    "soundfile",
+    "tqdm",
+    "uv",
+    "streamlit",
+]
+
+[project.scripts]
+ps26147 = "ps26147_toolkit.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["ps26147_toolkit", "web_demo"]

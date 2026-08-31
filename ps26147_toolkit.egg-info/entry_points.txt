@@ -1,0 +1,2 @@
+[console_scripts]
+ps26147 = ps26147_toolkit.cli:main
