@@ -7,6 +7,7 @@ import sys
 import zipfile
 import io
 import tempfile
+import matplotlib.pyplot as plt
 from pathlib import Path
 
 # Ensure local ps26147_toolkit directory is at the front of sys.path
@@ -35,6 +36,15 @@ from ps26147_toolkit.parameter_extractor import (
 )
 from ps26147_toolkit.classifier import ModulationClassifier
 from ps26147_toolkit.demodulator import demodulate_signal
+from ps26147_toolkit.deinterleaver import deinterleave, auto_detect_and_deinterleave
+from ps26147_toolkit.fec_decoders import decode_fec
+from ps26147_toolkit.correlator import (
+    STANDARD_SYNC_WORDS,
+    hex_to_bits,
+    correlate_bitstream,
+    frame_synchronize,
+    auto_discover_preamble,
+)
 
 st.set_page_config(page_title="PS26147 Signal & Demodulation Toolkit", layout="wide", page_icon="📡")
 st.title("📡 PS26147 – Signal Analysis, Demodulation & Spectrum Toolkit")
@@ -81,6 +91,71 @@ mod_override = st.sidebar.selectbox(
     index=0,
     help="Select 'Auto-Detect' to use the AI/HOC Classifier or choose a specific scheme to override."
 )
+
+st.sidebar.header("🔀 De-Interleaving Settings")
+enable_deinterleave = st.sidebar.checkbox("Enable De-Interleaving", value=False, help="Apply de-interleaving to the demodulated bitstream.")
+
+if enable_deinterleave:
+    deinterleave_method = st.sidebar.selectbox(
+        "De-Interleaving Method",
+        ["Auto-Detect", "Block", "Convolutional", "Diagonal", "Pseudo-Random"],
+        index=0,
+        help="Select 'Auto-Detect' to try all methods and pick the best, or choose a specific method.",
+    )
+
+    if deinterleave_method in ("Block", "Diagonal"):
+        di_rows = st.sidebar.number_input("Matrix Rows", min_value=2, max_value=256, value=8, step=1)
+        di_cols = st.sidebar.number_input("Matrix Cols", min_value=2, max_value=256, value=8, step=1)
+    else:
+        di_rows, di_cols = 8, 8
+
+    if deinterleave_method == "Convolutional":
+        di_branches = st.sidebar.number_input("Branches (N)", min_value=2, max_value=64, value=4, step=1)
+        di_delay = st.sidebar.number_input("Unit Delay (D)", min_value=1, max_value=256, value=8, step=1)
+    else:
+        di_branches, di_delay = 4, 8
+
+    if deinterleave_method == "Pseudo-Random":
+        di_block_size = st.sidebar.number_input("Block Size", min_value=8, max_value=4096, value=128, step=8)
+        di_seed = st.sidebar.number_input("PRBS Seed", min_value=0, max_value=65535, value=42, step=1)
+    else:
+        di_block_size, di_seed = 128, 42
+st.sidebar.header("🛡️ FEC Decoding Settings")
+enable_fec = st.sidebar.checkbox("Enable FEC Decoder", value=False, help="Decode error correction codes from demodulated / de-interleaved bits.")
+
+if enable_fec:
+    fec_scheme = st.sidebar.selectbox(
+        "FEC Code Type",
+        [
+            "Viterbi (Convolutional K=7, Rate 1/2)",
+            "Reed-Solomon RS(255, 223)",
+            "Concatenated (Viterbi + RS)",
+            "LDPC (Min-Sum)",
+        ],
+        index=0,
+        help="Select the Forward Error Correction decoding algorithm.",
+    )
+st.sidebar.header("🎯 Bitstream Correlation & Sync")
+enable_sync = st.sidebar.checkbox("Enable Frame Synchronization", value=False, help="Perform cross-correlation with sync markers to frame-align bitstream.")
+
+if enable_sync:
+    sync_mode = st.sidebar.selectbox(
+        "Sync Word Preset",
+        ["Auto-Discover"] + list(STANDARD_SYNC_WORDS.keys()) + ["Custom Hex Pattern"],
+        index=0,
+    )
+    if sync_mode == "Custom Hex Pattern":
+        custom_sync_hex = st.sidebar.text_input("Custom Sync Pattern (Hex)", value="1ACFFC1D")
+    else:
+        custom_sync_hex = "1ACFFC1D"
+
+    sync_threshold = st.sidebar.slider("Correlation Threshold", min_value=0.5, max_value=1.0, value=0.85, step=0.05)
+    tolerate_inv = st.sidebar.checkbox("Tolerate 180° Inverted Carrier", value=True)
+else:
+    sync_mode = "Auto-Discover"
+    custom_sync_hex = "1ACFFC1D"
+    sync_threshold = 0.85
+    tolerate_inv = True
 
 uploaded_files = st.file_uploader("Upload files", type=["iq", "wav", "zip"], accept_multiple_files=True)
 
@@ -147,7 +222,68 @@ def process_file(file_path: Path, display_name: str, fs_iq: float = 1000000.0) -
             baud_rate=baud,
         )
 
-    # 6. UI Presentation
+    # 6. De-interleaving
+    deinterleave_result = None
+    if enable_deinterleave and demod_data and demod_data["num_bits"] > 0:
+        raw_bits = demod_data["bits"]
+        if deinterleave_method == "Auto-Detect":
+            deinterleave_result = auto_detect_and_deinterleave(raw_bits)
+        else:
+            method_map = {
+                "Block": "block",
+                "Convolutional": "convolutional",
+                "Diagonal": "diagonal",
+                "Pseudo-Random": "pseudo-random",
+            }
+            deinterleave_result = deinterleave(
+                raw_bits,
+                method=method_map[deinterleave_method],
+                rows=di_rows,
+                cols=di_cols,
+                num_branches=di_branches,
+                delay=di_delay,
+                block_size=di_block_size,
+                seed=di_seed,
+            )
+
+    # 7. FEC Decoding
+    fec_result = None
+    if enable_fec and demod_data and demod_data["num_bits"] > 0:
+        # If de-interleaving is enabled, feed de-interleaved bits into FEC decoder; otherwise feed raw demodulated bits
+        input_fec_bits = deinterleave_result["bits"] if (deinterleave_result and len(deinterleave_result["bits"]) > 0) else demod_data["bits"]
+        fec_result = decode_fec(input_fec_bits, scheme=fec_scheme)
+
+    # 8. Bitstream Correlation & Frame Synchronization
+    sync_result = None
+    if enable_sync and demod_data and demod_data["num_bits"] > 0:
+        # Determine bitstream to synchronize (priority: FEC Decoded > De-interleaved > Demodulated)
+        if fec_result and len(fec_result.get("bits", [])) > 0:
+            target_stream = fec_result["bits"]
+        elif deinterleave_result and len(deinterleave_result.get("bits", [])) > 0:
+            target_stream = deinterleave_result["bits"]
+        else:
+            target_stream = demod_data["bits"]
+
+        if sync_mode == "Auto-Discover":
+            discovery = auto_discover_preamble(target_stream)
+            if discovery["matched_standard_sync"]:
+                active_sync_word = STANDARD_SYNC_WORDS[discovery["matched_standard_sync"]]
+            elif discovery["candidate_preamble_bits"] is not None:
+                active_sync_word = discovery["candidate_preamble_bits"]
+            else:
+                active_sync_word = STANDARD_SYNC_WORDS["Barker-13"]
+            sync_result = frame_synchronize(target_stream, active_sync_word, threshold=sync_threshold, tolerate_inverted=tolerate_inv)
+            sync_result["discovery_info"] = discovery
+        elif sync_mode == "Custom Hex Pattern":
+            custom_bits = hex_to_bits(custom_sync_hex)
+            sync_result = frame_synchronize(target_stream, custom_bits, threshold=sync_threshold, tolerate_inverted=tolerate_inv)
+            sync_result["discovery_info"] = None
+        else:
+            active_sync_word = STANDARD_SYNC_WORDS[sync_mode]
+            sync_result = frame_synchronize(target_stream, active_sync_word, threshold=sync_threshold, tolerate_inverted=tolerate_inv)
+            sync_result["discovery_info"] = None
+
+    # UI Presentation
     st.subheader(f"📁 {display_name}")
 
     # Summary metrics tiles
@@ -157,13 +293,24 @@ def process_file(file_path: Path, display_name: str, fs_iq: float = 1000000.0) -
     m3.metric("Bandwidth", f"{bw:,.1f} Hz")
     m4.metric("In-Band SNR", f"{snr:.2f} dB", delta=f"{snr - raw_snr:+.2f} dB" if enable_filtering else None)
     m5.metric("Est. Baud Rate", f"{baud:,.1f} Baud")
-    if demod_data:
+    if sync_result and sync_result.get("sync_found"):
+        m6.metric("Frame Sync", f"{sync_result['num_frames']} Frames", help=f"Frame len: {sync_result.get('detected_frame_length')} bits")
+    elif fec_result:
+        m6.metric("FEC Status", "Decoded", help=f"FEC: {fec_result.get('decoder', 'Active')}")
+    elif demod_data:
         m6.metric("EVM (dB)", f"{demod_data['evm_db']} dB")
     else:
         m6.metric("Demod Status", "Disabled")
 
     # Tabs for detailed views
-    tab1, tab2, tab3 = st.tabs(["📊 Spectral & Spectrogram Analysis", "🌌 Constellation Diagram (I-Q)", "💾 Demodulated Bitstream"])
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+        "📊 Spectral & Spectrogram Analysis",
+        "🌌 Constellation Diagram (I-Q)",
+        "💾 Demodulated Bitstream",
+        "🔀 De-Interleaved Output",
+        "🛡️ FEC Decoded Stream",
+        "🎯 Frame Correlation & Sync",
+    ])
 
     with tab1:
         if enable_filtering and show_comparison:
@@ -230,6 +377,165 @@ def process_file(file_path: Path, display_name: str, fs_iq: float = 1000000.0) -
         else:
             st.info("No bitstream available.")
 
+    with tab4:
+        if deinterleave_result and deinterleave_result["method"] != "none":
+            di = deinterleave_result
+            st.write("**De-Interleaving Results**")
+
+            d1, d2, d3 = st.columns(3)
+            d1.metric("Method", di["method"].replace("-", " ").title())
+            d2.metric("Output Entropy", f"{di['entropy']:.2f} bits/byte")
+            baseline_ent = di.get("baseline_entropy", di["entropy"])
+            ent_delta = di["entropy"] - baseline_ent
+            d3.metric("Input Entropy", f"{baseline_ent:.2f} bits/byte",
+                       delta=f"{ent_delta:+.2f}" if abs(ent_delta) > 0.001 else None)
+
+            st.write("**Parameters Used:**")
+            st.json(di["params"])
+
+            di_bits = di["bits"]
+            di_bit_str = "".join(str(b) for b in di_bits[:512])
+            di_byte_arr = np.packbits(di_bits)
+            di_hex_str = di_byte_arr[:64].tobytes().hex().upper()
+
+            st.text_area("De-Interleaved Binary Preview (first 512 bits):", value=di_bit_str, height=100)
+            st.text_area("De-Interleaved Hex Preview (first 64 bytes):", value=di_hex_str, height=70)
+
+            di_bytes = np.packbits(di_bits).tobytes()
+            st.download_button(
+                label="📥 Download De-Interleaved Bits (.bin)",
+                data=di_bytes,
+                file_name=f"{Path(display_name).stem}_deinterleaved.bin",
+                mime="application/octet-stream",
+            )
+        elif enable_deinterleave:
+            if not enable_demod:
+                st.warning("Enable demodulation first to produce a bitstream for de-interleaving.")
+            elif deinterleave_result and deinterleave_result["method"] == "none":
+                st.info("Auto-detection found no interleaving pattern. The bitstream may not be interleaved.")
+            else:
+                st.info("No bitstream available for de-interleaving.")
+        else:
+            st.info("Enable de-interleaving in the sidebar to process the demodulated bitstream.")
+
+    with tab5:
+        if fec_result and len(fec_result.get("bits", [])) > 0:
+            st.write(f"**FEC Decoded Information Stream ({fec_result.get('decoder', 'FEC')})**")
+            f1, f2, f3 = st.columns(3)
+            f1.metric("FEC Decoder", fec_result.get("decoder", "FEC"))
+            f1.caption(f"Input Bits: {fec_result.get('input_bits', 0):,} → Output Info Bits: {fec_result.get('output_bits', 0):,}")
+            
+            if "errors_corrected" in fec_result:
+                f2.metric("Errors Corrected", f"{fec_result['errors_corrected']} bytes")
+            elif "blocks_converged" in fec_result:
+                f2.metric("LDPC Convergence", f"{fec_result['blocks_converged']}/{fec_result['total_blocks']} blks")
+            else:
+                f2.metric("Code Rate", fec_result.get("rate", "1/2"))
+
+            f_bits = fec_result["bits"]
+            f_bit_str = "".join(str(b) for b in f_bits[:512])
+            f_byte_arr = np.packbits(f_bits)
+            f_hex_str = f_byte_arr[:64].tobytes().hex().upper()
+            f3.metric("Recovered Bytes", f"{len(f_byte_arr):,} bytes")
+
+            st.text_area("Decoded Binary Preview (first 512 bits):", value=f_bit_str, height=100)
+            st.text_area("Decoded Hex Payload Preview (first 64 bytes):", value=f_hex_str, height=70)
+
+            # ASCII text attempt if printable
+            try:
+                raw_ascii = f_byte_arr.tobytes().decode("ascii", errors="replace")
+                st.text_area("Decoded ASCII / Text Preview:", value=raw_ascii[:256], height=70)
+            except Exception:
+                pass
+
+            st.download_button(
+                label="📥 Download Clean Decoded Data (.bin)",
+                data=f_byte_arr.tobytes(),
+                file_name=f"{Path(display_name).stem}_fec_decoded.bin",
+                mime="application/octet-stream",
+            )
+        elif enable_fec:
+            if not enable_demod:
+                st.warning("Enable demodulation first to generate a bitstream for FEC decoding.")
+            else:
+                st.info("No bitstream available for FEC decoding.")
+        else:
+            st.info("Enable FEC Decoder in the sidebar to correct errors and decode information bits.")
+
+    with tab6:
+        if sync_result and sync_result.get("sync_found"):
+            st.write(f"**🎯 Bitstream Cross-Correlation & Frame Synchronization ({sync_result['num_frames']} Frames Locked)**")
+            s1, s2, s3, s4 = st.columns(4)
+            s1.metric("Sync Status", sync_result["status"])
+            s2.metric("Max Correlation", f"{sync_result['max_correlation']:.2f}", help="Peak normalized bipolar correlation score")
+            s3.metric("Detected Frame Len", f"{sync_result['detected_frame_length']} bits" if sync_result.get("detected_frame_length") else "Variable")
+            s4.metric("Phase Ambiguity", "180° Inverted" if sync_result.get("is_inverted") else "0° Normal")
+
+            if sync_result.get("discovery_info") and sync_result["discovery_info"].get("matched_standard_sync"):
+                disc = sync_result["discovery_info"]
+                st.success(f"🔍 Auto-Discovered Standard Sync: **{disc['matched_standard_sync']}** (Confidence: {disc['standard_sync_confidence']:.2f})")
+
+            # Plot correlation curve
+            if len(sync_result["correlation_curve"]) > 0:
+                corr_sub = sync_result["correlation_curve"][:2048]
+                fig_corr, ax_corr = plt.subplots(figsize=(10, 3))
+                ax_corr.plot(corr_sub, color="#ff7f0e", lw=1.2, label="Normalized Correlation")
+                ax_corr.axhline(sync_threshold, color="gray", linestyle="--", lw=0.8, label="Detection Threshold")
+                if len(sync_result["peak_indices"]) > 0:
+                    sub_peaks = [p for p in sync_result["peak_indices"] if p < len(corr_sub)]
+                    ax_corr.plot(sub_peaks, corr_sub[sub_peaks], "rx", markersize=8, mew=2, label="Sync Peaks")
+                ax_corr.set_title(f"Sliding Window Cross-Correlation – {display_name}")
+                ax_corr.set_xlabel("Bit Index Offset")
+                ax_corr.set_ylabel("Normalized Correlation Score")
+                ax_corr.set_ylim([-1.1, 1.1])
+                ax_corr.grid(True, linestyle=":", alpha=0.6)
+                ax_corr.legend(loc="upper right")
+                fig_corr.tight_layout()
+                st.pyplot(fig_corr)
+
+            # Display first 5 extracted frames
+            st.write("**Extracted Synchronized Frames Preview:**")
+            frame_records = []
+            for idx, fr in enumerate(sync_result["frames"][:8]):
+                pl_bytes = np.packbits(fr["payload_bits"]).tobytes()
+                frame_records.append({
+                    "Frame #": idx + 1,
+                    "Start Bit": fr["start_bit"],
+                    "End Bit": fr["end_bit"],
+                    "Correlation Score": round(fr["correlation"], 2),
+                    "Payload Bits": len(fr["payload_bits"]),
+                    "Hex Payload (First 16B)": pl_bytes[:16].hex().upper(),
+                })
+            st.dataframe(pd.DataFrame(frame_records), use_container_width=True)
+
+            # Download synchronized framed payloads
+            if len(sync_result["frames"]) > 0:
+                all_payload_bits = np.concatenate([fr["payload_bits"] for fr in sync_result["frames"]])
+                all_payload_bytes = np.packbits(all_payload_bits).tobytes()
+                st.download_button(
+                    label="📥 Download Extracted Frame Payloads (.bin)",
+                    data=all_payload_bytes,
+                    file_name=f"{Path(display_name).stem}_synced_payloads.bin",
+                    mime="application/octet-stream",
+                )
+        elif enable_sync:
+            if not enable_demod:
+                st.warning("Enable demodulation first to generate a bitstream for frame synchronization.")
+            else:
+                st.warning(f"⚠️ {sync_result.get('status', 'No sync markers detected')}")
+                if sync_result and len(sync_result.get("correlation_curve", [])) > 0:
+                    corr_sub = sync_result["correlation_curve"][:2048]
+                    fig_corr, ax_corr = plt.subplots(figsize=(10, 3))
+                    ax_corr.plot(corr_sub, color="#1f77b4", lw=1.0)
+                    ax_corr.axhline(sync_threshold, color="red", linestyle="--", lw=0.8)
+                    ax_corr.set_title("Correlation Profile (No Lock)")
+                    ax_corr.set_xlabel("Bit Offset")
+                    ax_corr.set_ylabel("Score")
+                    fig_corr.tight_layout()
+                    st.pyplot(fig_corr)
+        else:
+            st.info("Enable Frame Synchronization in the sidebar to search for sync words and extract aligned frames.")
+
     st.divider()
 
     return {
@@ -242,6 +548,14 @@ def process_file(file_path: Path, display_name: str, fs_iq: float = 1000000.0) -
         "num_bits": demod_data["num_bits"] if demod_data else 0,
         "evm_db": demod_data["evm_db"] if demod_data else None,
         "filtering_applied": enable_filtering,
+        "deinterleave_method": deinterleave_result["method"] if deinterleave_result else None,
+        "deinterleave_params": deinterleave_result["params"] if deinterleave_result else None,
+        "deinterleave_entropy": deinterleave_result["entropy"] if deinterleave_result else None,
+        "fec_decoder": fec_result["decoder"] if fec_result else None,
+        "fec_output_bits": fec_result["output_bits"] if fec_result else None,
+        "sync_status": sync_result["status"] if sync_result else None,
+        "sync_frames_found": sync_result["num_frames"] if (sync_result and sync_result.get("sync_found")) else 0,
+        "sync_frame_length": sync_result.get("detected_frame_length") if sync_result else None,
     }
 
 

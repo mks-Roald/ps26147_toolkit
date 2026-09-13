@@ -22,9 +22,9 @@
 | **Baud Rate & SNR Calibration** | ✅ Done | Upgraded robust in-band integrated SNR & cyclic envelope transition baud rate estimator (`parameter_extractor.py`) |
 | **Modulation Classifier Model** | ✅ Done | Higher-Order Cumulants ($C_{40}, C_{42}, C_{63}$) + automated ML classifier in `classifier.py` |
 | **Demodulators (FSK/PSK/QAM)** | ✅ Done | Carrier recovery (Costas PLL), symbol timing, EVM metric, Gray slicing, & Constellation viewer (`demodulator.py`) |
-| **De-Interleaving** | ⏳ Pending | Implement 4 de-interleaving algorithms |
-| **FEC Decoders** | ⏳ Pending | Implement Viterbi, Reed-Solomon, Concatenated, LDPC decoders |
-| **Bit Stream Correlation** | ⏳ Pending | Frame sync and preamble pattern cross-correlation |
+| **De-Interleaving** | ✅ Done | Block, Convolutional, Diagonal, Pseudo-Random de-interleavers + auto-detect (`deinterleaver.py`) |
+| **FEC Decoders** | ✅ Done | Viterbi (NASA K=7), Reed-Solomon GF(2^8), Concatenated (Viterbi+RS), LDPC (Min-Sum) (`fec_decoders.py`) |
+| **Bit Stream Correlation** | ✅ Done | Barker, CCSDS, DVB-S, auto-preamble discovery, sliding-window bipolar cross-correlation & framing (`correlator.py`) |
 
 ---
 
@@ -46,3 +46,22 @@
    - **Tab 1: 📊 Spectral & Spectrogram Analysis**
    - **Tab 2: 🌌 Constellation Diagram (I-Q Scatter)**
    - **Tab 3: 💾 Demodulated Bitstream (Binary/Hex view & `.bin` download)**
+10. Created [`deinterleaver.py`](file:///C:/Users/mehja/.gemini/antigravity/scratch/SIH-PS26147/ps26147_toolkit/deinterleaver.py) implementing:
+    - **Block De-interleaver:** Row/column matrix transpose inversion (R×C → C×R readout)
+    - **Convolutional De-interleaver:** Forney/Ramsey complementary shift-register delay lines
+    - **Diagonal De-interleaver:** Diagonal-fill matrix permutation inverse
+    - **Pseudo-Random De-interleaver:** PRBS-seeded permutation inversion with configurable seed
+    - **Auto-detect:** Tries all methods with common parameter grids; selects lowest byte-entropy output
+    - Integrated into `web_demo/app.py` as **Tab 4: 🔀 De-Interleaved Output** with sidebar controls
+11. Created [`fec_decoders.py`](file:///C:/Users/mehja/.gemini/antigravity/scratch/SIH-PS26147/ps26147_toolkit/fec_decoders.py) implementing:
+    - **Viterbi Convolutional Decoder:** NASA/ESA standard $K=7, \text{Rate } 1/2$, polynomials $[171_8, 133_8]$ with trellis path metrics and traceback
+    - **Reed-Solomon Decoder:** $GF(2^8)$ field arithmetic, syndrome computation, Berlekamp-Massey, Chien search, and Gaussian elimination error-magnitude solver
+    - **Concatenated Decoder:** Dual-stage Inner Viterbi + Outer Reed-Solomon DVB/CCSDS receiver pipeline
+    - **LDPC Decoder:** Log-Domain normalized Min-Sum belief propagation message passing on Tanner graphs
+    - Integrated into `web_demo/app.py` as **Tab 5: 🛡️ FEC Decoded Stream** with sidebar controls, ASCII preview, and clean payload export
+12. Created [`correlator.py`](file:///C:/Users/mehja/.gemini/antigravity/scratch/SIH-PS26147/ps26147_toolkit/correlator.py) implementing:
+    - **Standard Preamble / Sync Word Library:** Barker-7/11/13, CCSDS-32 ASM, DVB-S, ZigBee-SFD, WiFi-SFD, 1010 Training sequences, and custom Hex patterns
+    - **Bipolar Normalized Cross-Correlation:** Sliding window $-1.0 \dots +1.0$ matching with automatic 180° carrier inversion detection
+    - **Frame Synchronization & Boundary Slicing:** Multi-frame lock with stride verification and payload stripping
+    - **Auto-Preamble Discovery:** Unsupervised frame period estimation and standard library sync identification
+    - Integrated into `web_demo/app.py` as **Tab 6: 🎯 Frame Correlation & Sync** with interactive correlation curve plotting, extracted frame tables, and aligned payload export
