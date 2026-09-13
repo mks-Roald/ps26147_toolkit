@@ -25,6 +25,11 @@
 | **De-Interleaving** | ✅ Done | Block, Convolutional, Diagonal, Pseudo-Random de-interleavers + auto-detect (`deinterleaver.py`) |
 | **FEC Decoders** | ✅ Done | Viterbi (NASA K=7), Reed-Solomon GF(2^8), Concatenated (Viterbi+RS), LDPC (Min-Sum) (`fec_decoders.py`) |
 | **Bit Stream Correlation** | ✅ Done | Barker, CCSDS, DVB-S, auto-preamble discovery, sliding-window bipolar cross-correlation & framing (`correlator.py`) |
+| **Waterfall & Time-Domain Plots** | ⏳ Pending | High-resolution interactive 2D/3D waterfall spectral history and In-Phase/Quadrature time-domain waveform viewer |
+| **Constellation Accuracy & EVM Tweaks** | ⏳ Pending | Constellation cluster dispersion metrics, decision boundary calibration, and EVM/SNR optimization |
+| **Model Tuning & Error Corrections** | ⏳ Pending | Hyperparameter tuning, dataset expansion, HOC boundary refinement, and overall AMR classifier accuracy boost |
+| **Live Floating Step-by-Step Window** | ⏳ Pending | Real-time floating/docked execution log panel displaying each analysis & DSP step as it executes |
+| **Aesthetic, Reactive & Simplistic UI** | ⏳ Pending | Redesign frontend layout with a modern, reactive, clean dark/glassmorphic aesthetic based on reference mockup |
 
 ---
 
@@ -66,3 +71,27 @@
     - **Auto-Preamble Discovery:** Unsupervised frame period estimation and standard library sync identification
     - Integrated into `web_demo/app.py` as **Tab 6: 🎯 Frame Correlation & Sync** with interactive correlation curve plotting, extracted frame tables, and aligned payload export
 
+---
+
+## ⏳ Upcoming Tasks & Implementation Queue
+
+1. **Waterfall & Time-Domain Plots**
+   - High-resolution interactive 2D/3D waterfall spectral history for time-frequency tracking.
+   - In-Phase ($I$) and Quadrature ($Q$) time-domain waveform viewer with zoom/pan and instantaneous amplitude/phase overlay.
+
+2. **Constellation Accuracy & EVM Tweaks**
+   - Constellation cluster dispersion metrics and adaptive decision boundary calibration.
+   - Phase jitter / frequency offset compensation refinement for cleaner EVM metrics and SNR optimization.
+
+3. **Model Tuning & Error Corrections**
+   - Hyperparameter tuning for Random Forest and feature space expansion.
+   - Fine-tuning Higher-Order Cumulant (HOC) decision boundaries across noisy regimes ($\text{SNR} < 5\text{ dB}$).
+   - Confidence score calibration and multi-class confusion matrix validation.
+
+4. **Live Floating Step-by-Step Window**
+   - Floating / docked reactive real-time status and execution log panel in the GUI.
+   - Displays each stage of the pipeline as it executes: *Loading $\to$ Preprocessing $\to$ Filtering $\to$ Estimation $\to$ Classification $\to$ Demodulation $\to$ De-interleaving $\to$ FEC $\to$ Correlation*.
+
+5. **Aesthetic, Reactive & Simplistic UI Redesign**
+   - Modernize the Streamlit frontend with a sleek dark / glassmorphic card layout.
+   - Clean telemetry summary cards, responsive metric tiles, and streamlined navigation flow.
