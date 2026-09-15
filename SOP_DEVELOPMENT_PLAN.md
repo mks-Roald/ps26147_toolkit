@@ -296,10 +296,10 @@ flowchart TD
   - [x] Mathematical correction of $C_{63}$ and normalized baseband cumulants.
   - [x] Fix median-filtered instantaneous frequency to prevent false FSK triggers.
   - [x] Retrain Random Forest model on RRC/CFO channel-impaired synthetic dataset.
-- [ ] **Milestone 4: Synchronization & Demodulation Precision**
-  - [ ] Costas Loop phase-unwrap and drift prevention.
-  - [ ] Gardner / Mueller-Müller symbol timing recovery.
-  - [ ] Calibrated EVM in dB and soft LLR outputs.
+- [x] **Milestone 4: Synchronization & Demodulation Precision**
+  - [x] Costas Loop phase-unwrap and drift prevention.
+  - [x] Gardner / Mueller-Müller symbol timing recovery.
+  - [x] Calibrated EVM in dB and soft LLR outputs.
 - [ ] **Milestone 5: FEC & De-Interleaver Correction**
   - [ ] Reed-Solomon Forney error magnitude evaluation fix.
   - [ ] Soft-decision Viterbi $K=7$ integration.
