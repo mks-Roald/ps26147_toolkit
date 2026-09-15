@@ -2,13 +2,11 @@ import streamlit as st
 import json
 import pandas as pd
 import numpy as np
-import os
 import sys
 import zipfile
-import io
 import tempfile
-import matplotlib.pyplot as plt
 from pathlib import Path
+import time
 
 # Ensure local ps26147_toolkit directory is at the front of sys.path
 _PROJECT_ROOT = str(Path(__file__).resolve().parents[1])
@@ -25,8 +23,6 @@ from ps26147_toolkit.filters import (
 from ps26147_toolkit.feature_extractor import (
     compute_psd,
     compute_spectrogram,
-    plot_spectrogram,
-    plot_constellation,
 )
 from ps26147_toolkit.parameter_extractor import (
     estimate_center_frequency,
@@ -44,6 +40,17 @@ from ps26147_toolkit.correlator import (
     correlate_bitstream,
     frame_synchronize,
     auto_discover_preamble,
+)
+
+# Import Phase 7 interactive visualization components
+from plotly_visualizations import (
+    plot_interactive_spectrogram_2d,
+    plot_waterfall_3d,
+    plot_constellation_interactive,
+    plot_time_domain_iq,
+    plot_psd_interactive,
+    create_telemetry_card,
+    plot_correlation_interactive,
 )
 
 st.set_page_config(page_title="PS26147 Signal & Demodulation Toolkit", layout="wide", page_icon="📡")
@@ -162,24 +169,41 @@ uploaded_files = st.file_uploader("Upload files", type=["iq", "wav", "zip"], acc
 
 def process_file(file_path: Path, display_name: str, fs_iq: float = 1000000.0) -> dict:
     """Load, filter, extract features, classify, demodulate, and display results."""
+
+    # Initialize telemetry tracking
+    telemetry = {}
+
     # 1. Load signal
+    t_start = time.time()
     if file_path.suffix.lower() == ".iq":
         raw_signal = load_iq(str(file_path))
         fs = fs_iq
     else:
         fs, raw_signal = load_wav(str(file_path))
+    telemetry['Signal Ingestion'] = {
+        'status': 'complete',
+        'metric': f'{len(raw_signal):,} samples',
+        'duration_ms': (time.time() - t_start) * 1000
+    }
 
     # 2. Raw spectral analysis
+    t_start = time.time()
     nperseg = min(1024, max(2, raw_signal.size))
     raw_freqs, raw_psd = compute_psd(raw_signal, fs, nperseg=nperseg)
     raw_center_freq = estimate_center_frequency(raw_freqs, raw_psd)
     raw_bw = estimate_bandwidth(raw_freqs, raw_psd)
     raw_snr = estimate_snr(raw_psd, freqs=raw_freqs, center_freq=raw_center_freq, bandwidth=raw_bw)
     raw_baud = estimate_baud_rate(raw_signal, fs, center_freq=raw_center_freq, bandwidth=raw_bw)
+    telemetry['Parameter Extraction'] = {
+        'status': 'complete',
+        'metric': f'SNR: {raw_snr:.1f} dB',
+        'duration_ms': (time.time() - t_start) * 1000
+    }
 
     # 3. Apply digital filtering if enabled
     processed_signal = raw_signal
     if enable_filtering:
+        t_start = time.time()
         if remove_dc:
             processed_signal = remove_dc_offset(processed_signal)
         if use_bandpass and raw_bw > 0:
@@ -195,6 +219,11 @@ def process_file(file_path: Path, display_name: str, fs_iq: float = 1000000.0) -
                 processed_signal,
                 noise_reduction_factor=denoise_strength,
             )
+        telemetry['Signal Conditioning'] = {
+            'status': 'complete',
+            'metric': f'SNR Gain: +{raw_snr:.1f} dB',
+            'duration_ms': (time.time() - t_start) * 1000
+        }
 
         # Recompute spectral parameters on cleaned signal
         freqs, psd = compute_psd(processed_signal, fs, nperseg=nperseg)
@@ -205,15 +234,23 @@ def process_file(file_path: Path, display_name: str, fs_iq: float = 1000000.0) -
     else:
         freqs, psd = raw_freqs, raw_psd
         center_freq, bw, snr, baud = raw_center_freq, raw_bw, raw_snr, raw_baud
+        telemetry['Signal Conditioning'] = {'status': 'skipped', 'metric': 'Disabled'}
 
     # 4. Modulation classification
+    t_start = time.time()
     clf = ModulationClassifier()
     detected_mod = clf.predict(processed_signal, fs)
     effective_mod = detected_mod if mod_override == "Auto-Detect" else mod_override
+    telemetry['Modulation Classification'] = {
+        'status': 'complete',
+        'metric': effective_mod,
+        'duration_ms': (time.time() - t_start) * 1000
+    }
 
     # 5. Demodulation & Bit Extraction
     demod_data = None
     if enable_demod:
+        t_start = time.time()
         demod_data = demodulate_signal(
             processed_signal,
             fs=fs,
@@ -221,6 +258,13 @@ def process_file(file_path: Path, display_name: str, fs_iq: float = 1000000.0) -
             center_freq=center_freq,
             baud_rate=baud,
         )
+        telemetry['Demodulation'] = {
+            'status': 'complete',
+            'metric': f'{demod_data["num_bits"]:,} bits',
+            'duration_ms': (time.time() - t_start) * 1000
+        }
+    else:
+        telemetry['Demodulation'] = {'status': 'skipped', 'metric': 'Disabled'}
 
     # 6. De-interleaving
     deinterleave_result = None
@@ -313,18 +357,44 @@ def process_file(file_path: Path, display_name: str, fs_iq: float = 1000000.0) -
     ])
 
     with tab1:
+        # Display telemetry dashboard
+        telemetry_html = create_telemetry_card(telemetry)
+        st.markdown(telemetry_html, unsafe_allow_html=True)
+
         if enable_filtering and show_comparison:
             col1, col2 = st.columns(2)
             with col1:
                 st.write("📊 **Raw Signal Spectrogram**")
                 t_raw, f_raw, Sxx_raw_db = compute_spectrogram(raw_signal, fs)
-                fig_raw = plot_spectrogram(t_raw, f_raw, Sxx_raw_db, title=f"Raw – {display_name}")
-                st.pyplot(fig_raw)
+                fig_raw = plot_interactive_spectrogram_2d(t_raw, f_raw, Sxx_raw_db, title=f"Raw – {display_name}", fs=fs)
+                st.plotly_chart(fig_raw, use_container_width=True)
+
+                # Also show PSD for raw signal
+                raw_psd_db = 10 * np.log10(np.abs(np.fft.fft(raw_signal))**2 / len(raw_signal))
+                freqs = np.fft.fftfreq(len(raw_signal), 1/fs)
+                fig_psd_raw = plot_psd_interactive(freqs, raw_psd_db,
+                                                  center_freq=raw_center_freq,
+                                                  bandwidth=raw_bw,
+                                                  title=f"Raw PSD – {display_name}")
+                st.plotly_chart(fig_psd_raw, use_container_width=True)
             with col2:
                 st.write("✨ **Filtered Signal Spectrogram**")
                 t_proc, f_proc, Sxx_proc_db = compute_spectrogram(processed_signal, fs)
-                fig_proc = plot_spectrogram(t_proc, f_proc, Sxx_proc_db, title=f"Filtered – {display_name}")
-                st.pyplot(fig_proc)
+                fig_proc = plot_interactive_spectrogram_2d(t_proc, f_proc, Sxx_proc_db, title=f"Filtered – {display_name}", fs=fs)
+                st.plotly_chart(fig_proc, use_container_width=True)
+
+                # Also show PSD for filtered signal
+                proc_psd_db = 10 * np.log10(np.abs(np.fft.fft(processed_signal))**2 / len(processed_signal))
+                fig_psd_proc = plot_psd_interactive(freqs, proc_psd_db,
+                                                   center_freq=center_freq,
+                                                   bandwidth=bw,
+                                                   title=f"Filtered PSD – {display_name}")
+                st.plotly_chart(fig_psd_proc, use_container_width=True)
+
+                # Add 3D waterfall for filtered signal
+                st.write("🌊 **3D Waterfall View (Filtered)**")
+                fig_waterfall = plot_waterfall_3d(t_proc, f_proc, Sxx_proc_db, title=f"Waterfall – {display_name}")
+                st.plotly_chart(fig_waterfall, use_container_width=True)
         else:
             col1, col2 = st.columns([1, 2])
             with col1:
@@ -339,17 +409,36 @@ def process_file(file_path: Path, display_name: str, fs_iq: float = 1000000.0) -
                     "filtering_applied": enable_filtering,
                 })
             with col2:
+                st.write("📊 **Interactive Spectrogram**")
                 t, f, Sxx_db = compute_spectrogram(processed_signal, fs)
-                fig = plot_spectrogram(t, f, Sxx_db, title=f"Spectrogram – {display_name}")
-                st.pyplot(fig)
+                fig = plot_interactive_spectrogram_2d(t, f, Sxx_db, title=f"Spectrogram – {display_name}", fs=fs)
+                st.plotly_chart(fig, use_container_width=True)
+
+                # PSD plot
+                proc_psd_db = 10 * np.log10(np.abs(np.fft.fft(processed_signal))**2 / len(processed_signal))
+                fig_psd = plot_psd_interactive(freqs, proc_psd_db,
+                                              center_freq=center_freq,
+                                              bandwidth=bw,
+                                              title=f"Power Spectral Density – {display_name}")
+                st.plotly_chart(fig_psd, use_container_width=True)
 
     with tab2:
         if demod_data:
+            # Time-domain I/Q analysis
+            st.write("📈 **Time-Domain I/Q Signal Analysis**")
+            fig_time = plot_time_domain_iq(demod_data["symbols"], fs=fs, title=f"I/Q Waveforms – {display_name}")
+            st.plotly_chart(fig_time, use_container_width=True)
+
+            st.divider()
+
+            # Constellation diagram
             c1, c2 = st.columns([1, 1])
             with c1:
-                st.write(f"**Recovered Constellation for {effective_mod}**")
-                fig_const = plot_constellation(demod_data["symbols"], title=f"Constellation – {effective_mod} ({display_name})")
-                st.pyplot(fig_const)
+                st.write(f"**🎯 Interactive Constellation Diagram for {effective_mod}**")
+                fig_const = plot_constellation_interactive(demod_data["symbols"], modulation=effective_mod,
+                                                         title=f"Constellation – {effective_mod} ({display_name})",
+                                                         show_ideal=True, use_hexbin=True)
+                st.plotly_chart(fig_const, use_container_width=True)
             with c2:
                 st.write("**Demodulation Metrics**")
                 st.markdown(f"- **Modulation:** `{effective_mod}`")
@@ -478,20 +567,14 @@ def process_file(file_path: Path, display_name: str, fs_iq: float = 1000000.0) -
             # Plot correlation curve
             if len(sync_result["correlation_curve"]) > 0:
                 corr_sub = sync_result["correlation_curve"][:2048]
-                fig_corr, ax_corr = plt.subplots(figsize=(10, 3))
-                ax_corr.plot(corr_sub, color="#ff7f0e", lw=1.2, label="Normalized Correlation")
-                ax_corr.axhline(sync_threshold, color="gray", linestyle="--", lw=0.8, label="Detection Threshold")
-                if len(sync_result["peak_indices"]) > 0:
-                    sub_peaks = [p for p in sync_result["peak_indices"] if p < len(corr_sub)]
-                    ax_corr.plot(sub_peaks, corr_sub[sub_peaks], "rx", markersize=8, mew=2, label="Sync Peaks")
-                ax_corr.set_title(f"Sliding Window Cross-Correlation – {display_name}")
-                ax_corr.set_xlabel("Bit Index Offset")
-                ax_corr.set_ylabel("Normalized Correlation Score")
-                ax_corr.set_ylim([-1.1, 1.1])
-                ax_corr.grid(True, linestyle=":", alpha=0.6)
-                ax_corr.legend(loc="upper right")
-                fig_corr.tight_layout()
-                st.pyplot(fig_corr)
+                peak_indices_sub = [p for p in sync_result["peak_indices"] if p < len(corr_sub)]
+                fig_corr = plot_correlation_interactive(
+                    corr_sub,
+                    peak_indices_sub,
+                    sync_threshold,
+                    title=f"Sliding Window Cross-Correlation – {display_name}"
+                )
+                st.plotly_chart(fig_corr, use_container_width=True)
 
             # Display first 5 extracted frames
             st.write("**Extracted Synchronized Frames Preview:**")
@@ -525,14 +608,14 @@ def process_file(file_path: Path, display_name: str, fs_iq: float = 1000000.0) -
                 st.warning(f"⚠️ {sync_result.get('status', 'No sync markers detected')}")
                 if sync_result and len(sync_result.get("correlation_curve", [])) > 0:
                     corr_sub = sync_result["correlation_curve"][:2048]
-                    fig_corr, ax_corr = plt.subplots(figsize=(10, 3))
-                    ax_corr.plot(corr_sub, color="#1f77b4", lw=1.0)
-                    ax_corr.axhline(sync_threshold, color="red", linestyle="--", lw=0.8)
-                    ax_corr.set_title("Correlation Profile (No Lock)")
-                    ax_corr.set_xlabel("Bit Offset")
-                    ax_corr.set_ylabel("Score")
-                    fig_corr.tight_layout()
-                    st.pyplot(fig_corr)
+                    peak_indices_sub = []  # No peaks when no lock
+                    fig_corr = plot_correlation_interactive(
+                        corr_sub,
+                        peak_indices_sub,
+                        sync_threshold,
+                        title="Correlation Profile (No Lock)"
+                    )
+                    st.plotly_chart(fig_corr, use_container_width=True)
         else:
             st.info("Enable Frame Synchronization in the sidebar to search for sync words and extract aligned frames.")
 
