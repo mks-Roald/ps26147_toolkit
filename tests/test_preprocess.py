@@ -24,6 +24,7 @@ from ps26147_toolkit.preprocess import (
     load_iq,
     load_iq_with_sigmf,
     load_sigmf_meta,
+    load_wav,
     segment_signal,
 )
 
@@ -196,6 +197,12 @@ class TestComplex64Loading:
 # ---------------------------------------------------------------------------
 
 class TestAutoDtypeProbing:
+    def test_probe_short_file_fallback_float32(self, tmp_path):
+        """Fragments < 8 bytes fall back to float32 per SOP 1.1 (§2)."""
+        p = tmp_path / "tiny.iq"
+        p.write_bytes(b"\x00\x01\x02")
+        assert _probe_dtype(p) == "float32"
+
     def test_probe_int16(self, tmp_path):
         """Standard int16 SDR capture correctly detected as int16."""
         rng = np.random.default_rng(99)
@@ -366,6 +373,61 @@ class TestSigMFCompanion:
         iq, meta = load_iq_with_sigmf(str(iq_path), meta_path=str(meta_path))
         assert meta.fs == 8e6
         assert meta.center_freq_hint == 144e6
+
+
+# ---------------------------------------------------------------------------
+# WAV loading (SOP 1.x — real-audio ingestion path)
+# ---------------------------------------------------------------------------
+
+class TestWavLoading:
+    def _write_wav(self, path: Path, rate: int, dtype, data: np.ndarray):
+        from scipy.io import wavfile
+        wavfile.write(str(path), rate, data.astype(dtype))
+
+    def test_mono_float32(self, tmp_path):
+        rng = np.random.default_rng(11)
+        sig = rng.uniform(-0.8, 0.8, 1000).astype(np.float32)
+        p = tmp_path / "mono.wav"
+        self._write_wav(p, 8000, np.float32, sig)
+
+        sig_out, meta = load_wav(str(p))
+        assert meta.fs == 8000.0
+        assert meta.source_format == "wav"
+        assert meta.num_samples == 1000
+        np.testing.assert_allclose(sig_out, sig, atol=1e-5)
+
+    def test_stereo_float64_downmixed(self, tmp_path):
+        """Multi-channel WAV is averaged to mono."""
+        rng = np.random.default_rng(22)
+        stereo = rng.uniform(-1, 1, (500, 2)).astype(np.float64)
+        p = tmp_path / "stereo.wav"
+        self._write_wav(p, 16000, np.float64, stereo)
+
+        sig_out, meta = load_wav(str(p))
+        assert sig_out.ndim == 1
+        assert len(sig_out) == 500
+        np.testing.assert_allclose(sig_out, stereo.mean(axis=1), atol=1e-6)
+
+    def test_int16_normalisation(self, tmp_path):
+        """Integer WAV samples are scaled to [-1, 1] using the dtype max."""
+        rng = np.random.default_rng(33)
+        raw = (rng.uniform(-1, 1, 400) * 32767).astype(np.int16)
+        p = tmp_path / "int16.wav"
+        self._write_wav(p, 8000, np.int16, raw)
+
+        sig_out, meta = load_wav(str(p))
+        assert meta.dtype == "int16"
+        # Max |int16| maps to ≈1.0
+        expected = raw.astype(np.float32) / 32767.0
+        np.testing.assert_allclose(sig_out, expected, atol=1e-3)
+
+    def test_center_freq_hint(self, tmp_path):
+        rng = np.random.default_rng(44)
+        p = tmp_path / "cf.wav"
+        self._write_wav(p, 8000, np.float32, rng.uniform(-1, 1, 100))
+
+        _, meta = load_wav(str(p), center_freq_hint=433e6)
+        assert meta.center_freq_hint == 433e6
 
 
 # ---------------------------------------------------------------------------

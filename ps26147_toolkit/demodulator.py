@@ -304,7 +304,10 @@ def slice_symbols_to_bits(symbols: np.ndarray, modulation: str) -> tuple[np.ndar
             bits_list.append(bit)
             ref_symbols.append(1.0 if bit == 1 else -1.0)
 
-    elif "QPSK" in mod_upper or "4-QAM" in mod_upper or "4QAM" in mod_upper:
+    # NOTE: match QPSK/4QAM by *equality* rather than substring. "64QAM" and
+    # "16QAM" both contain "4QAM" as a substring, which would otherwise route
+    # them here (2 bits/symbol) and make the specific QAM branches unreachable.
+    elif "QPSK" in mod_upper or mod_upper in {"4QAM", "4-QAM"}:
         # Gray-coded QPSK (2 bits per symbol)
         for s in symbols:
             b0 = 0 if s.real >= 0 else 1
@@ -347,14 +350,9 @@ def slice_symbols_to_bits(symbols: np.ndarray, modulation: str) -> tuple[np.ndar
             bits_list.extend(bits_i + bits_q)
             ref_symbols.append(levels[idx_i] + 1j * levels[idx_q])
 
-    elif "2FSK" in mod_upper or "FSK" in mod_upper:
-        # Instantaneous frequency / phase slope slicing
-        diff = np.diff(np.unwrap(np.angle(symbols)))
-        for d in diff:
-            b = 1 if d >= 0 else 0
-            bits_list.append(b)
-            ref_symbols.append(1.0 if b == 1 else -1.0)
-
+    # NOTE: 4FSK must be matched *before* the generic "FSK" branch. "4FSK"
+    # contains "FSK", so ordering the 2FSK/FSK branch first would route every
+    # 4FSK symbol through the 1-bit slicer and make this branch unreachable.
     elif "4FSK" in mod_upper:
         diff = np.diff(np.unwrap(np.angle(symbols)))
         q1, q2, q3 = np.percentile(diff, [25, 50, 75])
@@ -369,6 +367,14 @@ def slice_symbols_to_bits(symbols: np.ndarray, modulation: str) -> tuple[np.ndar
                 b = [1, 0]
             bits_list.extend(b)
             ref_symbols.append(1.0)
+
+    elif "FSK" in mod_upper or "2FSK" in mod_upper:
+        # Instantaneous frequency / phase slope slicing (2FSK & generic FSK)
+        diff = np.diff(np.unwrap(np.angle(symbols)))
+        for d in diff:
+            b = 1 if d >= 0 else 0
+            bits_list.append(b)
+            ref_symbols.append(1.0 if b == 1 else -1.0)
 
     else:
         # Default binary envelope slicer

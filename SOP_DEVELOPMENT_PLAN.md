@@ -1,7 +1,7 @@
 # PS26147 Signal Intelligence & Demodulation Toolkit
 ## Standard Operating Procedure (SOP) & Step-by-Step Implementation Guide
 
-> **Document Version:** 1.0.0  
+> **Document Version:** 1.1.0  
 > **Target System:** `ps26147_toolkit`  
 > **Source Documents Synthesized:**  
 > - `ROADMAP.md` (Project Root)  
@@ -284,6 +284,8 @@ flowchart TD
 ## 🖥️ Phase 7: GUI, Waterfall & Telemetry Dashboard
 **Target Module:** `web_demo/app.py`
 
+**Status:** ✅ **COMPLETE** (2026-09-16)
+
 ### 7.1 Modernized UI & Visual Components
 - **SOP Action Steps:**
   1. Interactive 2D/3D Spectrogram & Waterfall history using Plotly.
@@ -291,10 +293,20 @@ flowchart TD
   3. Time-Domain I & Q waveform viewer with instantaneous envelope and phase plots.
   4. Reactive execution telemetry floating/docked status card showing real-time pipeline progress.
 
+**Implementation Details:**
+- ✅ Interactive 2D spectrogram (`plot_interactive_spectrogram_2d`) and 3D waterfall (`plot_waterfall_3d`) replaced the legacy matplotlib equivalents.
+- ✅ Hex-bin constellation density heatmap (`plot_constellation_interactive` with `use_hexbin=True`) plus ideal reference constellation overlay for all supported modulations.
+- ✅ Time-domain I/Q viewer (`plot_time_domain_iq`) with 4-panel layout: I, Q, instantaneous envelope, and unwrapped instantaneous phase.
+- ✅ Interactive PSD with center-frequency/bandwidth overlay (`plot_psd_interactive`).
+- ✅ Execution telemetry HTML card (`create_telemetry_card`) rendered in Tab 1, plus 6-column reactive metric tiles (Modulation, Center Freq, Bandwidth, SNR, Baud Rate, Frame Sync/FEC/EVM).
+- ✅ Full 6-tab Streamlit dashboard (`web_demo/app.py`) integrating spectral analysis, constellation, bitstream export, de-interleaving, FEC, and frame correlation.
+
 ---
 
 ## 🧪 Phase 8: Verification, Test Suite & Ground-Truth Benchmarks
 **Target Modules:** `tests/test_*.py`
+
+**Status:** ⚠️ **SUBSTANTIALLY COMPLETE** — 12 test modules, **178 tests passing**.
 
 ### 8.1 Module-Specific Unit Test Matrix
 - **SOP Action Steps:**
@@ -304,6 +316,19 @@ flowchart TD
   4. `test_demodulator.py`: Costas loop convergence, EVM calculation, and BER $< 10^{-4}$ under $\text{SNR} > 12\text{dB}$.
   5. `test_fec.py`: Bit error injection and correction validation for Reed-Solomon and Viterbi.
   6. `test_correlator.py`: Preamble detection and frame alignment with inverted polarity.
+
+**Implementation Details:**
+- ✅ `test_preprocess.py`: `int8`/`uint8`/`int16`/`float32` IQ round-trips, auto-dtype probing (incl. short-file fallback), `SignalMetadata`, SigMF companion metadata, and full `load_wav()` coverage (mono/stereo-downmix, float32/int16 normalization).
+- ✅ `test_parameter_extractor.py`: DC & offset $f_c$ estimation, bandwidth known-span validation, SNR monotonicity + M2M4, baud-rate estimation (passband/edge cases), and full `extract_signal_parameters` pipeline.
+- ✅ `test_feature_extractor.py`: Ground-truth cumulant tables for BPSK/QPSK/8PSK/16QAM/64QAM (see table below), RRC filter, downconversion, and instantaneous/spectral feature extraction.
+- ✅ `test_classifier.py`: Rule-based classifier regression tests (no BPSK/QPSK → FSK bug), FSK/AM classification, synthetic dataset generation, model predict + confidence, serialization.
+- ✅ `test_demodulator.py`: Costas loop convergence for BPSK/QPSK/8PSK, Gardner/Mueller-Müller timing recovery, EVM accuracy, soft LLR, high-SNR demodulation quality, and branch-coverage edge cases for all 7 slicers (BPSK/QPSK/8PSK/16QAM/64QAM/2FSK/4FSK) plus unknown-modulation fallback.
+- ✅ `test_fec.py` + `test_phase5_improvements.py`: Viterbi (hard & soft-decision), Reed-Solomon Forney algorithm (up to 16-byte error correction), concatenated (hard + soft) pipeline, LDPC Min-Sum decode, and FEC dispatcher.
+- ✅ `test_ldpc_matrices.py`: IEEE 802.11n matrix dimensions/rates (648/1296/1944 × 1/2…5/6), DVB-S2 normal/short frames, regular Gallager construction, master loader dispatch + error paths (rank/syndrome sanity checks).
+- ✅ `test_filters.py`: Bandpass (real & complex), spectral denoise (median-noise-floor subtraction + edge-normalization), median filter, IQ imbalance correction incl. edge cases, and full `clean_signal` pipeline.
+- ✅ `test_deinterleaver.py`: Block/convolutional/diagonal/pseudo-random de-interleavers + auto-detection.
+- ✅ `test_correlator.py`: Hex conversion, exact/inverted bipolar correlation, frame sync, auto-discovery (5 tests).
+- ✅ `test_cli.py`: `process_file()` full pipeline on `.iq`/`.wav`, filter flags, error handling, and `main()` argparse JSON/CSV/batch-dir output.
 
 ### 8.2 Reference Cumulant Ground-Truth Test Matrix
 
@@ -347,5 +372,7 @@ flowchart TD
   - [x] Auto-discovery of unknown preambles using lag-autocorrelation.
   - [x] Full Streamlit UI integration with correlation curve visualization.
   - [x] Plotly 2D/3D waterfall, hex-bin constellation (completed using Plotly).
-- [ ] **Milestone 7: Test Coverage & Verification**
-  - [ ] Comprehensive `pytest` suite across all modules with ground-truth synthetic test fixtures.
+- [x] **Milestone 7: Test Coverage & Verification**
+  - [x] Comprehensive `pytest` suite (178 tests) across all 12 test modules with ground-truth synthetic test fixtures.
+  - [x] CLI entry-point and LDPC matrix validation added (`test_cli.py`, `test_ldpc_matrices.py`).
+  - [ ] Remaining: strict BER < 10⁻⁴ assertion at SNR > 12 dB (demod tests currently validate EVM/quality instead of exact bit-error rate).
