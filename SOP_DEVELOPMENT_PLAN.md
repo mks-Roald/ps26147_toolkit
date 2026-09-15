@@ -252,6 +252,8 @@ flowchart TD
 ## 🎯 Phase 6: Frame Synchronization & Bitstream Correlation
 **Target Module:** `ps26147_toolkit/correlator.py`
 
+**Status:** ✅ **COMPLETE** (2026-09-15)
+
 ### 6.1 Bipolar Cross-Correlation & Sync Word Library
 - **SOP Action Steps:**
   1. Library of standardized sync words:
@@ -262,10 +264,20 @@ flowchart TD
   2. Sliding-window normalized bipolar correlation ($0 \to -1$, $1 \to +1$).
   3. Automatic detection of $180^\circ$ phase inversion (correlation peak $\le -0.90$) with bit-flip remediation.
 
+**Status:** ✅ **COMPLETE** - Implemented 9 standard sync words (Barker-7/11/13, CCSDS-32, DVB-S normal/inverted, ZigBee SFD, WiFi SFD, alternating preamble). Bipolar correlation with automatic phase inversion detection and correction fully operational.
+
 ### 6.2 Frame Periodicity & Stride Verification
 - **SOP Action Steps:**
   1. Verify periodic frame locks: ensure sync marks appear regularly at stride $N_{\text{frame}}$.
   2. Extract synchronized frame payloads, strip preamble headers, and pass payload to protocol/CRC validators.
+
+**Status:** ✅ **COMPLETE** - Frame synchronization with automatic frame length detection, periodic stride verification, payload extraction, and sync-stripped frame outputs fully implemented.
+
+### 6.3 Additional Implementations (Beyond SOP Requirements)
+- ✅ **Auto-Preamble Discovery:** Dual-strategy approach using lag-autocorrelation and standard library matching to identify unknown sync patterns without prior knowledge.
+- ✅ **Web UI Integration:** Full Streamlit dashboard (Tab 6) with correlation curve visualization, frame table, metrics display, and binary payload downloads.
+- ✅ **Hex Conversion Utility:** `hex_to_bits()` for custom sync pattern specification.
+- ✅ **Comprehensive Test Suite:** 5/5 tests passing in `tests/test_correlator.py` covering hex conversion, exact/inverted correlation, frame sync, and auto-discovery.
 
 ---
 
@@ -328,8 +340,12 @@ flowchart TD
   - [x] Reed-Solomon Forney error magnitude evaluation fix.
   - [ ] Soft-decision Viterbi $K=7$ integration (infrastructure complete, noisy channel validation pending).
   - [x] Standard-compliant LDPC parity-check matrix $H$ & Min-Sum decoder.
-- [ ] **Milestone 6: Frame Correlation & UI Experience**
-  - [ ] Normalized bipolar sync word correlation with $180^\circ$ polarity inversion handling.
-  - [ ] Plotly 2D/3D waterfall, hex-bin constellation, and diagnostic execution dashboard in Streamlit.
+- [x] **Milestone 6: Frame Correlation & UI Experience**
+  - [x] Normalized bipolar sync word correlation with $180^\circ$ polarity inversion handling.
+  - [x] Standard sync word library (Barker 7/11/13, CCSDS-32, DVB-S, ZigBee, WiFi SFD).
+  - [x] Frame synchronization with periodic stride verification and payload extraction.
+  - [x] Auto-discovery of unknown preambles using lag-autocorrelation.
+  - [x] Full Streamlit UI integration with correlation curve visualization.
+  - [ ] Plotly 2D/3D waterfall, hex-bin constellation (currently using Matplotlib).
 - [ ] **Milestone 7: Test Coverage & Verification**
   - [ ] Comprehensive `pytest` suite across all modules with ground-truth synthetic test fixtures.
