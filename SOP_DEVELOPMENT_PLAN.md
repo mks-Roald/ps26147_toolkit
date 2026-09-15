@@ -346,6 +346,6 @@ flowchart TD
   - [x] Frame synchronization with periodic stride verification and payload extraction.
   - [x] Auto-discovery of unknown preambles using lag-autocorrelation.
   - [x] Full Streamlit UI integration with correlation curve visualization.
-  - [ ] Plotly 2D/3D waterfall, hex-bin constellation (currently using Matplotlib).
+  - [x] Plotly 2D/3D waterfall, hex-bin constellation (completed using Plotly).
 - [ ] **Milestone 7: Test Coverage & Verification**
   - [ ] Comprehensive `pytest` suite across all modules with ground-truth synthetic test fixtures.
