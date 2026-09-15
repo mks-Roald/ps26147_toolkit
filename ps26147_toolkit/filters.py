@@ -4,9 +4,57 @@ from scipy import signal as sp_signal
 
 def remove_dc_offset(signal: np.ndarray) -> np.ndarray:
     """Remove DC bias / carrier leakage from the signal.
-    Works for both complex IQ and real audio signals.
+    Works for both complex IQ (separately on I and Q) and real audio signals.
     """
+    if np.iscomplexobj(signal):
+        return (signal.real - np.mean(signal.real)) + 1j * (signal.imag - np.mean(signal.imag))
     return signal - np.mean(signal)
+
+
+def correct_iq_imbalance(signal: np.ndarray) -> np.ndarray:
+    """Compensate for IQ amplitude and phase imbalance using Gram-Schmidt
+    orthogonalization (blind estimation).
+
+    Removes mirror-image spectral components around DC caused by SDR front-end
+    mismatch between In-phase and Quadrature branches.
+
+    Parameters
+    ----------
+    signal : np.ndarray (complex)
+        Complex baseband signal with potential amplitude/phase imbalance.
+
+    Returns
+    -------
+    np.ndarray (complex64)
+        Orthogonalized, balanced complex baseband signal.
+    """
+    if not np.iscomplexobj(signal) or len(signal) < 16:
+        return signal
+
+    # 1. Remove DC offset first
+    i_raw = signal.real - np.mean(signal.real)
+    q_raw = signal.imag - np.mean(signal.imag)
+
+    # 2. Amplitude imbalance estimation & normalization
+    p_i = np.mean(i_raw ** 2)
+    p_q = np.mean(q_raw ** 2)
+
+    if p_i < 1e-12 or p_q < 1e-12:
+        return signal
+
+    # Scale Q to match I power
+    amp_scale = np.sqrt(p_i / p_q)
+    q_scaled = q_raw * amp_scale
+
+    # 3. Phase imbalance estimation (cross-correlation)
+    p_iq = np.mean(i_raw * q_scaled)
+    sin_phi = np.clip(p_iq / p_i, -0.999, 0.999)
+    cos_phi = np.sqrt(1.0 - sin_phi ** 2)
+
+    # 4. Gram-Schmidt orthogonal projection
+    q_ortho = (q_scaled - i_raw * sin_phi) / cos_phi
+
+    return (i_raw + 1j * q_ortho).astype(np.complex64)
 
 
 def bandpass_filter(
@@ -136,6 +184,7 @@ def clean_signal(
     center_freq: float = None,
     bandwidth: float = None,
     enable_dc_removal: bool = True,
+    enable_iq_imbalance_correction: bool = False,
     enable_bandpass: bool = True,
     enable_denoise: bool = False,
 ) -> np.ndarray:
@@ -144,6 +193,9 @@ def clean_signal(
 
     if enable_dc_removal:
         cleaned = remove_dc_offset(cleaned)
+
+    if enable_iq_imbalance_correction and np.iscomplexobj(cleaned):
+        cleaned = correct_iq_imbalance(cleaned)
 
     if enable_bandpass and center_freq is not None and bandwidth is not None and bandwidth > 0:
         cleaned = bandpass_filter(cleaned, fs, center_freq, bandwidth)

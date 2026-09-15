@@ -284,10 +284,10 @@ flowchart TD
 
 ## 🚦 Execution Checklist & Milestones Tracker
 
-- [ ] **Milestone 1: Ingestion & Front-End Integrity**
-  - [ ] Support `int16`, `int8`, `float32` with auto-probing in `load_iq()`.
-  - [ ] Enforce explicit `SignalMetadata(fs=...)`.
-  - [ ] Unconditional DC offset removal & IQ imbalance balancing.
+- [x] **Milestone 1: Ingestion & Front-End Integrity**
+  - [x] Support `int16`, `int8`, `uint8`, `float32`, `complex64` with auto-probing in `load_iq()`.
+  - [x] Enforce explicit `SignalMetadata(fs=...)` & companion `.sigmf-meta` loading.
+  - [x] Unconditional DC offset removal & Gram-Schmidt IQ imbalance correction (`correct_iq_imbalance`).
 - [ ] **Milestone 2: Signal Estimators Calibration**
   - [ ] Masked-spectrum noise floor & accurate $BW_{-3\text{dB}}, BW_{-10\text{dB}}, OBW_{99\%}$.
   - [ ] Multi-method integrated SNR estimator.

@@ -1,8 +1,16 @@
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
-from .preprocess import load_iq, load_wav, segment_signal
+from .preprocess import (
+    SignalMetadata,
+    load_iq,
+    load_wav,
+    load_sigmf_meta,
+    load_iq_with_sigmf,
+    segment_signal,
+)
 from .filters import (
     remove_dc_offset,
+    correct_iq_imbalance,
     bandpass_filter,
     spectral_denoise,
     median_filter_signal,
