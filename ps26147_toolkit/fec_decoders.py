@@ -117,14 +117,117 @@ class ConvolutionalCodec:
             history.append(step_history)
 
         # Traceback from minimum metric state (or state 0 if flushed)
-        best_end_state = int(np.argmin(path_metrics))
+        # For tail-flushed codes, should end at state 0
+        best_end_state = 0 if n_symbols > (self.k - 1) else int(np.argmin(path_metrics))
         curr_state = best_end_state
         decoded = []
 
         for t in reversed(range(n_symbols)):
-            prev_st, in_bit = history[t][curr_state]
-            decoded.append(in_bit)
-            curr_state = prev_st
+            if t < len(history) and curr_state in history[t]:
+                prev_st, in_bit = history[t][curr_state]
+                decoded.append(in_bit)
+                curr_state = prev_st
+            else:
+                # Fallback if history is incomplete
+                decoded.append(0)
+
+        decoded.reverse()
+        decoded_arr = np.array(decoded, dtype=np.uint8)
+
+        # Discard zero-tail bits (k-1) if present
+        if len(decoded_arr) > (self.k - 1):
+            decoded_arr = decoded_arr[: -(self.k - 1)]
+
+        if max_len is not None and len(decoded_arr) > max_len:
+            decoded_arr = decoded_arr[:max_len]
+
+        return decoded_arr
+
+    def decode_soft(
+        self,
+        rx_llrs: np.ndarray,
+        max_len: int = None,
+    ) -> np.ndarray:
+        """Soft-decision Viterbi decoding using Log-Likelihood Ratios (LLRs).
+
+        Provides ~2.5 dB coding gain over hard-decision decoding.
+
+        Parameters
+        ----------
+        rx_llrs : np.ndarray
+            Channel Log-Likelihood Ratios for each received code bit.
+            LLR > 0 indicates bit is likely 0, LLR < 0 indicates bit is likely 1.
+            Magnitude indicates confidence.
+        max_len : int, optional
+            Maximum length of decoded output.
+
+        Returns
+        -------
+        np.ndarray
+            Decoded information bits.
+        """
+        n_symbols = len(rx_llrs) // self.rate_inv
+        if n_symbols == 0:
+            return np.array([], dtype=np.uint8)
+
+        rx_llr_symbols = rx_llrs[: n_symbols * self.rate_inv].reshape((n_symbols, self.rate_inv))
+
+        # Trellis path metrics (accumulated log-likelihood) and survivor history
+        INF = 1e9
+        path_metrics = np.full(self.num_states, -INF, dtype=np.float32)
+        path_metrics[0] = 0.0  # Initial state is 0
+
+        # history[t][state] = (best_prev_state, input_bit)
+        history: list[dict[int, tuple[int, int]]] = []
+
+        for t in range(n_symbols):
+            rx_llr = rx_llr_symbols[t]
+            new_metrics = np.full(self.num_states, -INF, dtype=np.float32)
+            step_history = {}
+
+            for curr_state in range(self.num_states):
+                best_metric = -INF
+                best_prev = 0
+                best_bit = 0
+
+                for prev_state, in_bit, exp_out in self.prev_transitions[curr_state]:
+                    # Soft-decision branch metric using LLRs
+                    # LLR convention: positive = bit likely 0, negative = bit likely 1
+                    # Branch metric = sum over code bits of: LLR[i] * (1 - 2*exp_out[i])
+                    # This is equivalent to: if exp_out[i]==0: add LLR[i], else subtract LLR[i]
+                    branch_llr = 0.0
+                    for i in range(self.rate_inv):
+                        # Convert expected bit to signed: 0 -> +1, 1 -> -1
+                        exp_sign = 1.0 - 2.0 * exp_out[i]
+                        branch_llr += rx_llr[i] * exp_sign
+
+                    pm = path_metrics[prev_state] + branch_llr
+
+                    if pm > best_metric:
+                        best_metric = pm
+                        best_prev = prev_state
+                        best_bit = in_bit
+
+                new_metrics[curr_state] = best_metric
+                step_history[curr_state] = (best_prev, best_bit)
+
+            path_metrics = new_metrics
+            history.append(step_history)
+
+        # Traceback from maximum metric state (highest log-likelihood)
+        # For tail-flushed codes, should end at state 0
+        best_end_state = 0 if n_symbols > (self.k - 1) else int(np.argmax(path_metrics))
+        curr_state = best_end_state
+        decoded = []
+
+        for t in reversed(range(n_symbols)):
+            if t < len(history) and curr_state in history[t]:
+                prev_st, in_bit = history[t][curr_state]
+                decoded.append(in_bit)
+                curr_state = prev_st
+            else:
+                # Fallback if history is incomplete
+                decoded.append(0)
 
         decoded.reverse()
         decoded_arr = np.array(decoded, dtype=np.uint8)
@@ -143,12 +246,37 @@ def viterbi_decode(
     bits: np.ndarray,
     constraint_length: int = 7,
     polys: tuple[int, int] = (0o171, 0o133),
+    soft_decision: bool = False,
 ) -> dict:
-    """Viterbi Decoder convenience wrapper."""
+    """Viterbi Decoder convenience wrapper.
+
+    Parameters
+    ----------
+    bits : np.ndarray
+        For hard-decision (soft_decision=False): received bits (0/1).
+        For soft-decision (soft_decision=True): LLRs (positive=bit 0, negative=bit 1).
+    constraint_length : int
+        Constraint length K (default: 7 for NASA standard).
+    polys : tuple[int, int]
+        Generator polynomials in octal (default: (0o171, 0o133)).
+    soft_decision : bool
+        If True, treats input as LLRs and uses soft-decision decoding (~2.5 dB gain).
+
+    Returns
+    -------
+    dict
+        Decoding results with metadata.
+    """
     codec = ConvolutionalCodec(k=constraint_length, polys=polys)
-    decoded = codec.decode(bits)
+    if soft_decision:
+        decoded = codec.decode_soft(bits)
+        decision_type = "Soft-Decision (LLR)"
+    else:
+        decoded = codec.decode(bits)
+        decision_type = "Hard-Decision"
+
     return {
-        "decoder": "Viterbi (Convolutional)",
+        "decoder": f"Viterbi (Convolutional) - {decision_type}",
         "rate": f"1/{len(polys)}",
         "constraint_length": constraint_length,
         "polynomials": [oct(p) for p in polys],
@@ -301,38 +429,59 @@ class ReedSolomonCodec:
         if len(err_pos) != L or L == 0:
             return r[: self.k], -1
 
-        # 4. Error magnitude solver via linear syndrome equations:
-        # Sum_{j=0}^{L-1} E_j * (X_j)^i = S_i
+        # 4. Forney algorithm for error magnitude evaluation
+        # Compute error evaluator polynomial Omega(x) = S(x) * Lambda(x) mod x^{2t}
+        # where S(x) = sum_{i=0}^{2t-1} S_i * x^i
+        S_poly = syn  # S_0, S_1, ..., S_{2t-1}
+
+        # Multiply S(x) * Lambda(x)
+        Omega = [0] * (len(S_poly) + len(C))
+        for i, s_coef in enumerate(S_poly):
+            for j, c_coef in enumerate(C):
+                Omega[i + j] ^= self.gf.mul(s_coef, c_coef)
+
+        # Truncate to mod x^{2t}
+        Omega = Omega[: self.two_t]
+
+        # Compute Lambda'(x) - formal derivative of error locator polynomial
+        # Lambda'(x) = sum of Lambda[i] * x^{i-1} for odd i
+        Lambda_deriv = [C[i] for i in range(1, len(C), 2)]
+
+        # Error locators X_j and error magnitudes using Forney's formula:
+        # e_j = -Omega(X_j^{-1}) / Lambda'(X_j^{-1})
         X = [self.gf.exp[(self.n - 1 - p) % 255] for p in err_pos]
-        M = [[self.gf.exp[(self.gf.log[X[j]] * i) % 255] for j in range(L)] for i in range(L)]
-        b_vec = syn[:L]
+        error_magnitudes = []
 
-        # Gaussian elimination in GF(2^8)
-        for i in range(L):
-            if M[i][i] == 0:
-                for row in range(i + 1, L):
-                    if M[row][i] != 0:
-                        M[i], M[row] = M[row], M[i]
-                        b_vec[i], b_vec[row] = b_vec[row], b_vec[i]
-                        break
-            if M[i][i] == 0:
-                return r[: self.k], -1
+        for X_j in X:
+            X_j_inv = self.gf.inv(X_j)
 
-            inv_p = self.gf.inv(M[i][i])
-            for col in range(i, L):
-                M[i][col] = self.gf.mul(M[i][col], inv_p)
-            b_vec[i] = self.gf.mul(b_vec[i], inv_p)
+            # Evaluate Omega(X_j^{-1})
+            omega_val = 0
+            for deg, coef in enumerate(Omega):
+                if coef != 0:
+                    if deg == 0:
+                        omega_val ^= coef
+                    else:
+                        omega_val ^= self.gf.mul(coef, self.gf.exp[(self.gf.log[X_j_inv] * deg) % 255])
 
-            for row in range(L):
-                if row != i and M[row][i] != 0:
-                    factor = M[row][i]
-                    for col in range(i, L):
-                        M[row][col] ^= self.gf.mul(factor, M[i][col])
-                    b_vec[row] ^= self.gf.mul(factor, b_vec[i])
+            # Evaluate Lambda'(X_j^{-1})
+            lambda_prime_val = 0
+            for deg, coef in enumerate(Lambda_deriv):
+                actual_deg = 2 * deg + 1  # odd powers only
+                if coef != 0:
+                    lambda_prime_val ^= self.gf.mul(coef, self.gf.exp[(self.gf.log[X_j_inv] * actual_deg) % 255])
+
+            if lambda_prime_val == 0:
+                return r[: self.k], -1  # Decoding failure
+
+            # e_j = -Omega(X_j^{-1}) / Lambda'(X_j^{-1})
+            # In GF(2^8), negation is identity (characteristic 2)
+            e_j = self.gf.div(omega_val, lambda_prime_val)
+            error_magnitudes.append(e_j)
 
         corrected = list(r)
-        for idx, pos in enumerate(err_pos):
-            corrected[pos] ^= b_vec[idx]
+        for pos, e_mag in zip(err_pos, error_magnitudes):
+            corrected[pos] ^= e_mag
 
         return corrected[: self.k], len(err_pos)
 
@@ -421,33 +570,64 @@ def concatenated_decode(
 class LDPCCodec:
     """Low-Density Parity-Check (LDPC) Codec with Log-Domain Min-Sum Message Passing."""
 
-    def __init__(self, n: int = 128, k: int = 64, dv: int = 3, dc: int = 6, seed: int = 42):
+    def __init__(
+        self,
+        n: int = 128,
+        k: int = 64,
+        H: np.ndarray = None,
+        dv: int = 3,
+        dc: int = 6,
+        seed: int = 42
+    ):
+        """Initialize LDPC codec with a parity-check matrix.
+
+        Parameters
+        ----------
+        n : int
+            Codeword length.
+        k : int
+            Information length.
+        H : np.ndarray, optional
+            Pre-defined parity-check matrix. If None, generates a regular Gallager matrix.
+        dv : int
+            Variable node degree (for generated matrices).
+        dc : int
+            Check node degree (for generated matrices).
+        seed : int
+            Random seed (for generated matrices).
+        """
         self.n = n
         self.k = k
         self.m = n - k
-        self.dv = dv
-        self.dc = dc
 
-        # Build regular Gallager LDPC parity check matrix H (m x n)
-        rng = np.random.default_rng(seed)
-        H = np.zeros((self.m, self.n), dtype=np.uint8)
+        if H is not None:
+            # Use provided matrix
+            if H.shape[1] != n:
+                raise ValueError(f"H matrix must have {n} columns, got {H.shape[1]}")
+            self.H = H.astype(np.uint8)
+            self.m = H.shape[0]
+        else:
+            # Generate regular Gallager LDPC parity check matrix H (m x n)
+            rng = np.random.default_rng(seed)
+            H = np.zeros((self.m, self.n), dtype=np.uint8)
 
-        # Place dc ones in each row, dv ones in each column
-        sub_m = max(1, self.m // dv)
-        for i in range(dv):
-            perm = rng.permutation(self.n)
-            for j in range(sub_m):
-                row_idx = i * sub_m + j
-                if row_idx < self.m:
-                    ones_idx = np.arange(j * dc, (j + 1) * dc) % self.n
-                    H[row_idx, perm[ones_idx]] = 1
+            # Place dc ones in each row, dv ones in each column
+            sub_m = max(1, self.m // dv)
+            for i in range(dv):
+                perm = rng.permutation(self.n)
+                for j in range(sub_m):
+                    row_idx = i * sub_m + j
+                    if row_idx < self.m:
+                        ones_idx = np.arange(j * dc, (j + 1) * dc) % self.n
+                        H[row_idx, perm[ones_idx]] = 1
 
-        # Fill any remaining rows
-        for r in range(dv * sub_m, self.m):
-            ones_idx = rng.choice(self.n, size=min(dc, self.n), replace=False)
-            H[r, ones_idx] = 1
+            # Fill any remaining rows
+            for r in range(dv * sub_m, self.m):
+                ones_idx = rng.choice(self.n, size=min(dc, self.n), replace=False)
+                H[r, ones_idx] = 1
 
-        self.H = H
+            self.H = H
+
         self.check_adj = [np.where(self.H[c, :] == 1)[0] for c in range(self.m)]
         self.var_adj = [np.where(self.H[:, v] == 1)[0] for v in range(self.n)]
 
@@ -521,16 +701,41 @@ def ldpc_decode(
     bits: np.ndarray,
     n: int = 128,
     k: int = 64,
+    H: np.ndarray = None,
     max_iters: int = 25,
 ) -> dict:
-    """LDPC Block Decoder wrapper."""
-    codec = LDPCCodec(n=n, k=k)
-    # Convert hard bits (0/1) to pseudo-channel LLRs (+6.0 for 0, -6.0 for 1)
-    llrs = np.where(bits == 0, 6.0, -6.0).astype(np.float32)
+    """LDPC Block Decoder wrapper.
+
+    Parameters
+    ----------
+    bits : np.ndarray
+        Received hard bits (0/1) or soft LLRs.
+    n : int
+        Codeword length.
+    k : int
+        Information length.
+    H : np.ndarray, optional
+        Parity-check matrix. If None, generates a regular Gallager matrix.
+        Use ldpc_matrices.get_ldpc_matrix() for standards-compliant matrices.
+    max_iters : int
+        Maximum belief propagation iterations.
+
+    Returns
+    -------
+    dict
+        Decoding results with metadata.
+    """
+    codec = LDPCCodec(n=n, k=k, H=H)
+
+    # Convert hard bits (0/1) to pseudo-channel LLRs if needed
+    if bits.dtype in (np.uint8, np.int8, np.int32, np.int64) and np.all((bits == 0) | (bits == 1)):
+        llrs = np.where(bits == 0, 6.0, -6.0).astype(np.float32)
+    else:
+        llrs = bits.astype(np.float32)
 
     decoded_bits = []
     blocks_converged = 0
-    num_blocks = len(bits) // n
+    num_blocks = len(llrs) // n
 
     for i in range(num_blocks):
         blk_llr = llrs[i * n : (i + 1) * n]
@@ -540,8 +745,8 @@ def ldpc_decode(
         decoded_bits.extend(dec_k)
 
     # Handle remaining partial bits
-    if len(bits) % n != 0 and num_blocks == 0:
-        pad_len = n - len(bits)
+    if len(llrs) % n != 0 and num_blocks == 0:
+        pad_len = n - len(llrs)
         padded_llr = np.pad(llrs, (0, pad_len), constant_values=0.0)
         dec_k, converged, _ = codec.decode_block(padded_llr, max_iters=max_iters)
         if converged:
