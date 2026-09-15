@@ -292,10 +292,10 @@ flowchart TD
   - [x] Masked-spectrum noise floor & accurate $BW_{-3\text{dB}}, BW_{-10\text{dB}}, OBW_{99\%}$.
   - [x] Multi-method integrated SNR estimator (Spectral + M2M4 split-moment).
   - [x] Baseband-downconverted, windowed cyclic transition baud rate estimator with subharmonic & autocorrelation validation.
-- [ ] **Milestone 3: AMR Classifier Correctness**
-  - [ ] Mathematical correction of $C_{63}$ and normalized baseband cumulants.
-  - [ ] Fix median-filtered instantaneous frequency to prevent false FSK triggers.
-  - [ ] Retrain Random Forest model on RRC/CFO channel-impaired synthetic dataset.
+- [x] **Milestone 3: AMR Classifier Correctness**
+  - [x] Mathematical correction of $C_{63}$ and normalized baseband cumulants.
+  - [x] Fix median-filtered instantaneous frequency to prevent false FSK triggers.
+  - [x] Retrain Random Forest model on RRC/CFO channel-impaired synthetic dataset.
 - [ ] **Milestone 4: Synchronization & Demodulation Precision**
   - [ ] Costas Loop phase-unwrap and drift prevention.
   - [ ] Gardner / Mueller-Müller symbol timing recovery.
