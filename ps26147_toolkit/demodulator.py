@@ -22,22 +22,27 @@ def costas_carrier_recovery(
     loop_bw: float = 0.01,
 ) -> np.ndarray:
     """Decision-directed / Costas PLL for carrier frequency and phase tracking.
+
     Order: 2 for BPSK, 4 for QPSK/QAM, 8 for 8PSK.
+
+    Phase 4 Enhancement:
+    - Proper phase wrapping inside [-π/N, +π/N] to prevent accumulator drift
+    - Dual-stage loop filter (proportional + integral) for stable lock tracking
     """
     n = len(sig)
     out_sig = np.zeros(n, dtype=np.complex64)
 
     phase = 0.0
     freq = 0.0
-    alpha = loop_bw
-    beta = (alpha ** 2) / 4.0
+    alpha = loop_bw  # Proportional gain
+    beta = (alpha ** 2) / 4.0  # Integral gain
 
     for i in range(n):
         # Rotate input by current phase estimate
         sample = sig[i] * np.exp(-1j * phase)
         out_sig[i] = sample
 
-        # Phase error detector
+        # Phase error detector (order-adaptive)
         if order == 2:
             # BPSK error: sign(real) * imag
             error = np.sign(sample.real) * sample.imag
@@ -45,28 +50,136 @@ def costas_carrier_recovery(
             # QPSK / QAM error: sign(real)*imag - sign(imag)*real
             error = np.sign(sample.real) * sample.imag - np.sign(sample.imag) * sample.real
         elif order == 8:
-            # 8PSK error: 8-th power phase
+            # 8PSK error: Use 8-th power method with proper wrapping
             angle = np.angle(sample)
-            error = np.sin(8 * angle) / 8.0
+            error_angle = 8 * angle
+            # Wrap phase error inside [-π, +π] then scale by 1/N
+            error = np.arctan2(np.sin(error_angle), np.cos(error_angle)) / 8.0
         else:
             error = sample.imag
 
         # Clamp error to prevent loop runaway
         error = np.clip(error, -2.0, 2.0)
 
-        # Loop filter
-        freq += beta * error
-        phase += freq + alpha * error
+        # Dual-stage loop filter: proportional + integral
+        freq += beta * error  # Integral path (accumulates frequency offset)
+        phase += freq + alpha * error  # Proportional path
+
+        # Critical Phase 4 fix: Wrap phase accumulator to prevent drift
+        # Keep phase bounded in [-π, +π]
+        if phase > np.pi:
+            phase -= 2 * np.pi
+        elif phase < -np.pi:
+            phase += 2 * np.pi
 
     return out_sig
+
+
+def gardner_timing_recovery(
+    sig: np.ndarray,
+    sps: float,
+    loop_bw: float = 0.01,
+) -> np.ndarray:
+    """Gardner Timing Error Detector (TED) with fractional interpolation.
+
+    Phase 4 Enhancement: Adaptive symbol clock tracking that samples at optimal
+    eye-diagram opening using fractional cubic interpolation.
+
+    Args:
+        sig: Complex baseband signal
+        sps: Samples per symbol (float, can be fractional)
+        loop_bw: Loop bandwidth for timing recovery loop filter
+
+    Returns:
+        Array of recovered symbols (1 sample per symbol)
+    """
+    if sps <= 1.0:
+        return sig
+
+    n = len(sig)
+    mu = 0.0  # Fractional timing offset [0, 1)
+    mu_samples = []
+    symbols = []
+
+    # Loop filter gains
+    alpha = loop_bw
+    beta = (alpha ** 2) / 4.0
+
+    # Tracking variables
+    sample_idx = sps  # Start after first symbol period
+    prev_sample = sig[0]
+    mid_sample = sig[0]
+
+    while sample_idx < n - sps:
+        # Fractional interpolation using cubic (4-point) interpolation
+        base_idx = int(np.floor(sample_idx))
+        frac = sample_idx - base_idx
+
+        # Ensure we have enough samples for 4-point interpolation
+        if base_idx < 1 or base_idx + 2 >= n:
+            break
+
+        # Cubic interpolation: y(mu) = y[-1]*c0 + y[0]*c1 + y[1]*c2 + y[2]*c3
+        c0 = -frac * (frac - 1) * (frac - 2) / 6.0
+        c1 = (frac + 1) * (frac - 1) * (frac - 2) / 2.0
+        c2 = -(frac + 1) * frac * (frac - 2) / 2.0
+        c3 = (frac + 1) * frac * (frac - 1) / 6.0
+
+        interpolated = (
+            c0 * sig[base_idx - 1]
+            + c1 * sig[base_idx]
+            + c2 * sig[base_idx + 1]
+            + c3 * sig[base_idx + 2]
+        )
+
+        symbols.append(interpolated)
+
+        # Gardner TED: error = real[(x[n] - x[n-2]) * conj(x[n-1])]
+        # Uses current, previous, and midpoint samples
+        mid_idx = int(np.floor(sample_idx - sps / 2.0))
+        if mid_idx >= 0 and mid_idx < n:
+            mid_sample = sig[mid_idx]
+
+        # Gardner error detector (works for most modulations)
+        error = ((interpolated - prev_sample) * np.conj(mid_sample)).real
+
+        # Update timing with loop filter
+        mu += beta * error
+        sample_idx += sps + alpha * error + mu
+
+        # Clamp mu to prevent runaway
+        if mu > 0.5:
+            mu -= 1.0
+            sample_idx -= 1.0
+        elif mu < -0.5:
+            mu += 1.0
+            sample_idx += 1.0
+
+        prev_sample = interpolated
+
+    return np.array(symbols, dtype=np.complex64)
 
 
 def symbol_timing_recovery(
     sig: np.ndarray,
     fs: float,
     baud_rate: float,
+    method: str = "gardner",
 ) -> np.ndarray:
-    """Downsample and align baseband signal to 1 sample per symbol at optimal eye opening."""
+    """Symbol timing recovery wrapper supporting multiple methods.
+
+    Phase 4 Enhancement: Replaced basic integer decimation with adaptive
+    fractional symbol clock tracking.
+
+    Args:
+        sig: Complex baseband signal
+        fs: Sampling rate (Hz)
+        baud_rate: Symbol rate (baud)
+        method: Recovery method - "gardner" (default) or "simple" (legacy)
+
+    Returns:
+        Array of recovered symbols
+    """
     if baud_rate <= 0 or fs <= 0:
         return sig
 
@@ -74,6 +187,10 @@ def symbol_timing_recovery(
     if sps <= 1.0:
         return sig
 
+    if method == "gardner":
+        return gardner_timing_recovery(sig, sps)
+
+    # Legacy simple method (fallback)
     int_sps = int(np.round(sps))
     if int_sps <= 1:
         return sig
@@ -95,8 +212,85 @@ def symbol_timing_recovery(
     return sig[best_offset::int_sps]
 
 
+def compute_soft_llr(
+    symbols: np.ndarray,
+    modulation: str,
+    noise_variance: float = 0.1,
+) -> np.ndarray:
+    """Compute Log-Likelihood Ratios (LLR) for soft FEC decoding.
+
+    Phase 4 Enhancement: Produces soft-decision metrics for each bit based on
+    Euclidean distance to constellation points.
+
+    LLR definition: LLR = log(P(bit=0|y) / P(bit=1|y))
+    Positive LLR → bit likely 0, Negative LLR → bit likely 1
+
+    Args:
+        symbols: Received complex symbols (normalized)
+        modulation: Modulation scheme
+        noise_variance: Estimated noise variance (σ²) for scaling
+
+    Returns:
+        Array of LLRs (one per bit)
+    """
+    mod_upper = modulation.upper()
+
+    # Special case for BPSK: simple real-part based LLR
+    if "BPSK" in mod_upper:
+        # BPSK: real >= 0 → bit 1, real < 0 → bit 0
+        # LLR positive → bit 0, LLR negative → bit 1
+        # So LLR = -real / noise_variance (negated to match convention)
+        llrs = -symbols.real / noise_variance
+        return np.clip(llrs, -20.0, 20.0).astype(np.float32)
+
+    constellation = CONSTELLATIONS.get(mod_upper.replace("-", ""))
+
+    if constellation is None:
+        # Fallback: treat as BPSK-like
+        llrs = -symbols.real / noise_variance
+        return np.clip(llrs, -20.0, 20.0).astype(np.float32)
+
+    llrs = []
+    bits_per_symbol = int(np.log2(len(constellation)))
+
+    for sym in symbols:
+        # Compute distances to all constellation points
+        distances = np.abs(sym - constellation) ** 2
+
+        # For each bit position, compute LLR
+        for bit_pos in range(bits_per_symbol):
+            # Indices where bit_pos is 0
+            mask_0 = np.array([(i >> (bits_per_symbol - 1 - bit_pos)) & 1 == 0
+                              for i in range(len(constellation))])
+            # Indices where bit_pos is 1
+            mask_1 = ~mask_0
+
+            # Min distance among symbols with bit=0
+            if np.any(mask_0):
+                min_dist_0 = np.min(distances[mask_0])
+            else:
+                min_dist_0 = 1e6
+
+            # Min distance among symbols with bit=1
+            if np.any(mask_1):
+                min_dist_1 = np.min(distances[mask_1])
+            else:
+                min_dist_1 = 1e6
+
+            # LLR = (d1 - d0) / (2 * σ²)
+            # Positive → bit=0 more likely, Negative → bit=1 more likely
+            llr = (min_dist_1 - min_dist_0) / (2.0 * noise_variance)
+
+            # Clamp to prevent overflow in FEC decoders
+            llr = np.clip(llr, -20.0, 20.0)
+            llrs.append(llr)
+
+    return np.array(llrs, dtype=np.float32)
+
+
 def slice_symbols_to_bits(symbols: np.ndarray, modulation: str) -> tuple[np.ndarray, np.ndarray]:
     """Slice normalized complex symbols to nearest constellation points and extract bitstream.
+
     Returns (demodulated_bits, ideal_reference_symbols).
     """
     mod_upper = modulation.upper()
@@ -188,10 +382,23 @@ def slice_symbols_to_bits(symbols: np.ndarray, modulation: str) -> tuple[np.ndar
     return np.array(bits_list, dtype=np.uint8), np.array(ref_symbols, dtype=np.complex64)
 
 
-def compute_evm(symbols: np.ndarray, ref_symbols: np.ndarray) -> float:
-    """Calculate Error Vector Magnitude (EVM) in dB."""
+def compute_evm(symbols: np.ndarray, ref_symbols: np.ndarray) -> dict:
+    """Calculate Error Vector Magnitude (EVM) in dB and percentage.
+
+    Phase 4 Enhancement: Returns both dB and percentage RMS EVM metrics.
+
+    EVM_RMS = sqrt(mean(|s_rx - s_ref|²) / mean(|s_ref|²))
+
+    Args:
+        symbols: Received symbols
+        ref_symbols: Ideal reference constellation points
+
+    Returns:
+        Dictionary with 'evm_db', 'evm_percent', and 'noise_variance'
+    """
     if len(symbols) == 0 or len(ref_symbols) == 0:
-        return 0.0
+        return {"evm_db": 0.0, "evm_percent": 0.0, "noise_variance": 0.1}
+
     min_len = min(len(symbols), len(ref_symbols))
     s = symbols[:min_len]
     r = ref_symbols[:min_len]
@@ -201,9 +408,20 @@ def compute_evm(symbols: np.ndarray, ref_symbols: np.ndarray) -> float:
     p_ref = np.mean(np.abs(r) ** 2)
 
     if p_ref <= 1e-12:
-        return 0.0
+        return {"evm_db": 0.0, "evm_percent": 0.0, "noise_variance": 0.1}
+
     evm_rms = np.sqrt(p_error / p_ref)
-    return float(20.0 * np.log10(max(evm_rms, 1e-6)))
+    evm_db = float(20.0 * np.log10(max(evm_rms, 1e-6)))
+    evm_percent = float(evm_rms * 100.0)
+
+    # Estimate noise variance for LLR calculation
+    noise_var = float(p_error)
+
+    return {
+        "evm_db": round(evm_db, 2),
+        "evm_percent": round(evm_percent, 2),
+        "noise_variance": max(noise_var, 1e-6),
+    }
 
 
 def demodulate_signal(
@@ -212,29 +430,52 @@ def demodulate_signal(
     modulation: str,
     center_freq: float = 0.0,
     baud_rate: float = None,
+    timing_method: str = "gardner",
 ) -> dict:
-    """Complete demodulation pipeline:
+    """Complete demodulation pipeline with Phase 4 enhancements.
+
+    Pipeline stages:
     1. Baseband downconversion & analytic conversion
-    2. Symbol timing recovery
-    3. Carrier phase synchronization (Costas Loop)
+    2. Symbol timing recovery (Gardner TED with fractional interpolation)
+    3. Carrier phase synchronization (Costas Loop with drift prevention)
     4. Constellation normalization & slicing to bits
-    5. EVM and bitstream formatting
+    5. EVM calculation and soft LLR generation
+
+    Args:
+        signal: Input IQ signal (complex or real)
+        fs: Sampling rate (Hz)
+        modulation: Modulation scheme string
+        center_freq: Center frequency offset (Hz) for downconversion
+        baud_rate: Symbol rate (baud) for timing recovery
+        timing_method: "gardner" (default) or "simple" for timing recovery
+
+    Returns:
+        Dictionary containing:
+        - symbols: Normalized constellation symbols
+        - bits: Hard-decision bit stream
+        - llr: Soft-decision Log-Likelihood Ratios
+        - bit_string_preview: First 512 bits as string
+        - hex_preview: First 64 bytes as hex string
+        - num_bits: Total number of bits
+        - evm_db: Error Vector Magnitude in dB
+        - evm_percent: Error Vector Magnitude in %
+        - modulation: Modulation scheme used
     """
     if not np.iscomplexobj(signal):
         sig = hilbert(signal)
     else:
         sig = np.copy(signal)
 
-    # 1. Baseband frequency shift
+    # 1. Baseband frequency shift (downconversion)
     if abs(center_freq) > 0.01:
         t = np.arange(len(sig)) / fs
         sig_bb = sig * np.exp(-1j * 2 * np.pi * center_freq * t)
     else:
         sig_bb = sig
 
-    # 2. Timing recovery
+    # 2. Symbol timing recovery (Phase 4: Gardner TED)
     if baud_rate is not None and baud_rate > 0:
-        symbols_raw = symbol_timing_recovery(sig_bb, fs, baud_rate)
+        symbols_raw = symbol_timing_recovery(sig_bb, fs, baud_rate, method=timing_method)
     else:
         symbols_raw = sig_bb
 
@@ -243,7 +484,7 @@ def demodulate_signal(
     if len(symbols_raw) > max_symbols:
         symbols_raw = symbols_raw[:max_symbols]
 
-    # 3. Carrier PLL / Phase Tracking
+    # 3. Carrier PLL / Phase Tracking (Phase 4: with drift prevention)
     mod_upper = modulation.upper()
     order = 2 if "BPSK" in mod_upper else (8 if "8PSK" in mod_upper else 4)
     symbols_tracked = costas_carrier_recovery(symbols_raw, order=order)
@@ -257,7 +498,12 @@ def demodulate_signal(
 
     # 5. Slicing to bits & reference symbols
     bits, ref_symbols = slice_symbols_to_bits(symbols_norm, modulation)
-    evm_db = compute_evm(symbols_norm, ref_symbols)
+
+    # 6. EVM calculation (Phase 4: enhanced with percentage and noise variance)
+    evm_results = compute_evm(symbols_norm, ref_symbols)
+
+    # 7. Soft LLR generation (Phase 4: for soft FEC decoding)
+    llr = compute_soft_llr(symbols_norm, modulation, evm_results["noise_variance"])
 
     # Format bit string & hex string preview
     bit_str = "".join(str(b) for b in bits[:512])
@@ -268,9 +514,11 @@ def demodulate_signal(
     return {
         "symbols": symbols_norm,
         "bits": bits,
+        "llr": llr,
         "bit_string_preview": bit_str,
         "hex_preview": hex_str,
         "num_bits": len(bits),
-        "evm_db": round(float(evm_db), 2),
+        "evm_db": evm_results["evm_db"],
+        "evm_percent": evm_results["evm_percent"],
         "modulation": modulation,
     }
