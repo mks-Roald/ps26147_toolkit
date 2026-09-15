@@ -288,10 +288,10 @@ flowchart TD
   - [x] Support `int16`, `int8`, `uint8`, `float32`, `complex64` with auto-probing in `load_iq()`.
   - [x] Enforce explicit `SignalMetadata(fs=...)` & companion `.sigmf-meta` loading.
   - [x] Unconditional DC offset removal & Gram-Schmidt IQ imbalance correction (`correct_iq_imbalance`).
-- [ ] **Milestone 2: Signal Estimators Calibration**
-  - [ ] Masked-spectrum noise floor & accurate $BW_{-3\text{dB}}, BW_{-10\text{dB}}, OBW_{99\%}$.
-  - [ ] Multi-method integrated SNR estimator.
-  - [ ] Baseband-downconverted, windowed cyclic transition baud rate estimator.
+- [x] **Milestone 2: Signal Estimators Calibration**
+  - [x] Masked-spectrum noise floor & accurate $BW_{-3\text{dB}}, BW_{-10\text{dB}}, OBW_{99\%}$.
+  - [x] Multi-method integrated SNR estimator (Spectral + M2M4 split-moment).
+  - [x] Baseband-downconverted, windowed cyclic transition baud rate estimator with subharmonic & autocorrelation validation.
 - [ ] **Milestone 3: AMR Classifier Correctness**
   - [ ] Mathematical correction of $C_{63}$ and normalized baseband cumulants.
   - [ ] Fix median-filtered instantaneous frequency to prevent false FSK triggers.
