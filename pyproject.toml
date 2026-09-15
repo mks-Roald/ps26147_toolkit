@@ -31,3 +31,11 @@ ps26147 = "ps26147_toolkit.cli:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["ps26147_toolkit", "web_demo"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
+
+

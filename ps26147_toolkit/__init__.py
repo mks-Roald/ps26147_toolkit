@@ -16,7 +16,15 @@ from .filters import (
     median_filter_signal,
     clean_signal,
 )
-from .feature_extractor import compute_psd, compute_spectrogram, plot_spectrogram, plot_constellation
+from .feature_extractor import (
+    compute_psd,
+    compute_spectrogram,
+    plot_spectrogram,
+    plot_constellation,
+    rrc_filter,
+    extract_instantaneous_features,
+    extract_spectral_features,
+)
 from .parameter_extractor import (
     estimate_center_frequency,
     estimate_bandwidth,
@@ -26,7 +34,14 @@ from .parameter_extractor import (
     estimate_baud_rate,
     extract_signal_parameters,
 )
-from .classifier import ModulationClassifier, compute_cumulants, extract_features, rule_based_classify
+from .classifier import (
+    MODULATION_CLASSES,
+    ModulationClassifier,
+    compute_cumulants,
+    extract_features,
+    rule_based_classify,
+    generate_synthetic_dataset,
+)
 from .demodulator import demodulate_signal, slice_symbols_to_bits, compute_evm
 from .deinterleaver import (
     block_deinterleave,
