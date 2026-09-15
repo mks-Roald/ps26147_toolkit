@@ -29,10 +29,11 @@ def process_file(
 
     # Determine type by extension
     if p.suffix.lower() == ".iq":
-        signal = load_iq(str(p))
-        fs = fs_iq
+        signal, meta = load_iq(str(p), fs=fs_iq)
+        fs = fs_iq if fs_iq is not None else meta.fs
     elif p.suffix.lower() == ".wav":
-        fs, signal = load_wav(str(p))
+        signal, meta = load_wav(str(p))
+        fs = meta.fs
     else:
         raise ValueError("Unsupported file type. Use .iq or .wav")
 
@@ -106,7 +107,10 @@ def main():
 
     if input_path.is_dir():
         files = list(input_path.rglob("*.iq")) + list(input_path.rglob("*.wav"))
+    elif input_path.exists():
+        files = [input_path] if input_path.suffix.lower() in {".iq", ".wav"} else []
     else:
+        # Relative glob pattern (Path.glob requires a relative pattern)
         files = list(Path(".").glob(str(input_path)))
         files = [p for p in files if p.suffix.lower() in {".iq", ".wav"}]
 

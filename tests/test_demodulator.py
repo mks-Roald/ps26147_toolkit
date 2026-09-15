@@ -483,16 +483,241 @@ class TestSlicing:
 
     def test_16qam_slicing(self):
         """Test 16QAM symbol slicing (4 bits per symbol)."""
-        # Pick a few 16QAM constellation points
         levels = np.array([-3, -1, 1, 3]) / np.sqrt(10)
         symbols = np.array(
             [levels[0] + 1j * levels[0], levels[3] + 1j * levels[3]], dtype=np.complex64
         )
         bits, ref = slice_symbols_to_bits(symbols, "16QAM")
 
-        # 2 symbols × 4 bits = 8 bits
         assert len(bits) == 8
         assert len(ref) == 2
+
+    def test_64qam_slicing(self):
+        """Test 64QAM symbol slicing (6 bits per symbol)."""
+        constellation = CONSTELLATIONS["64QAM"]
+        # Use a few actual constellation points
+        symbols = constellation[[0, 32, 63]].copy()
+        bits, ref = slice_symbols_to_bits(symbols, "64QAM")
+
+        # 3 symbols × 6 bits = 18 bits
+        assert len(bits) == 18
+        assert len(ref) == 3
+
+    def test_2fsk_slicing(self):
+        """Test 2FSK phase-slope slicing."""
+        # FSK symbols where phase is increasing (positive slope → bit 1)
+        n = 20
+        angles_pos = np.linspace(0, 5, n)  # monotonically increasing → all bit=1
+        syms_pos = np.exp(1j * angles_pos).astype(np.complex64)
+        bits_pos, ref_pos = slice_symbols_to_bits(syms_pos, "2FSK")
+
+        # n symbols → n-1 diff samples → n-1 bits
+        assert len(bits_pos) == n - 1
+        assert np.all(bits_pos == 1)
+
+        # Monotonically decreasing phase → all bit=0
+        angles_neg = np.linspace(5, 0, n)
+        syms_neg = np.exp(1j * angles_neg).astype(np.complex64)
+        bits_neg, ref_neg = slice_symbols_to_bits(syms_neg, "2FSK")
+        assert np.all(bits_neg == 0)
+
+    def test_4fsk_slicing(self):
+        """Test 4FSK percentile-quantile 2-bit slicing."""
+        rng = np.random.default_rng(99)
+        n = 200
+        angles = np.linspace(-2, 2, n) + rng.normal(0, 0.1, n)
+        syms = np.exp(1j * angles).astype(np.complex64)
+        bits, ref = slice_symbols_to_bits(syms, "4FSK")
+
+        # n symbols → n-1 diff → 2*(n-1) bits (2 bits per diff sample)
+        assert len(bits) == 2 * (n - 1)
+        assert len(ref) == n - 1
+        # All bits should be 0 or 1
+        assert set(np.unique(bits)).issubset({0, 1})
+
+    def test_unknown_modulation_fallback_slicer(self):
+        """Unknown modulation falls back to binary envelope slicer."""
+        rng = np.random.default_rng(7)
+        symbols = (rng.standard_normal(50) + 1j * rng.standard_normal(50)).astype(np.complex64)
+        bits, ref = slice_symbols_to_bits(symbols, "UNKNOWN_MOD")
+        assert len(bits) == 50
+        assert set(np.unique(bits)).issubset({0, 1})
+
+
+class TestEVMEdgeCases:
+    """Test EVM calculation edge cases for branch coverage."""
+
+    def test_evm_empty_symbols(self):
+        """Empty input returns default EVM dict."""
+        result = compute_evm(np.array([]), np.array([1.0 + 0j]))
+        assert result["evm_db"] == 0.0
+        assert result["evm_percent"] == 0.0
+
+    def test_evm_zero_reference_power(self):
+        """Zero-power reference symbols return default EVM dict."""
+        symbols = np.array([1.0 + 0j, 2.0 + 0j])
+        ref = np.array([0.0 + 0j, 0.0 + 0j])
+        result = compute_evm(symbols, ref)
+        assert result["evm_db"] == 0.0
+        assert result["evm_percent"] == 0.0
+
+
+class TestLLREdgeCases:
+    """Test soft LLR generation edge cases."""
+
+    def test_unknown_modulation_fallback(self):
+        """Unknown modulation falls back to BPSK-like LLR."""
+        symbols = np.array([1.0 + 0j, -1.0 + 0j], dtype=np.complex64)
+        llr = compute_soft_llr(symbols, "FAKE", noise_variance=0.1)
+        assert len(llr) == 2
+        # Should use real-part based BPSK-like LLR
+        assert llr[0] < 0  # positive real → negative LLR
+        assert llr[1] > 0  # negative real → positive LLR
+
+
+class TestDemodulateEdgeCases:
+    """Test demodulate_signal uncovered branches."""
+
+    def test_real_signal_hilbert_path(self):
+        """Real (non-complex) signal uses Hilbert transform."""
+        sps = 8
+        fs = sps * 1e6
+        baud_rate = 1e6
+        t = np.arange(2000) / fs
+        real_sig = np.cos(2 * np.pi * 500 * t).astype(np.float64)
+        result = demodulate_signal(real_sig, fs, "BPSK", baud_rate=baud_rate)
+        assert "symbols" in result
+        assert len(result["bits"]) > 0
+
+    def test_center_freq_shift(self):
+        """Non-zero center_freq triggers baseband frequency shift."""
+        num_symbols = 200
+        sps = 8
+        fs = sps * 1e6
+        baud_rate = 1e6
+        signal, _ = generate_modulated_signal("BPSK", num_symbols, sps, snr_db=20.0)
+        result = demodulate_signal(
+            signal, fs, "BPSK", center_freq=50_000.0, baud_rate=baud_rate
+        )
+        assert len(result["bits"]) > 0
+
+    def test_no_baud_rate_passthrough(self):
+        """No baud_rate → symbols pass through without timing recovery."""
+        num_symbols = 200
+        sps = 8
+        fs = sps * 1e6
+        signal, _ = generate_modulated_signal("BPSK", num_symbols, sps, snr_db=20.0)
+        result = demodulate_signal(signal, fs, "BPSK", baud_rate=None)
+        assert "symbols" in result
+        assert len(result["bits"]) > 0
+
+    def test_max_symbols_cap(self):
+        """Signal longer than 4096 samples is capped."""
+        sps = 8
+        fs = sps * 1e6
+        baud_rate = 1e6
+        # Generate a long signal (6000 symbols → 48000 samples > 4096)
+        signal, _ = generate_modulated_signal("BPSK", 6000, sps, snr_db=20.0)
+        result = demodulate_signal(signal, fs, "BPSK", baud_rate=baud_rate)
+        # Result should have ≤ 4096 symbols (capped)
+        assert len(result["symbols"]) <= 4096
+
+    def test_zero_energy_normalization(self):
+        """Zero-energy symbols skip normalization (p_avg ≤ 1e-12)."""
+        # Create a signal that after costas loop will be near-zero
+        sps = 8
+        fs = sps * 1e6
+        baud_rate = 1e6
+        zero_sig = np.zeros(2000, dtype=np.complex64)
+        result = demodulate_signal(zero_sig, fs, "BPSK", baud_rate=baud_rate)
+        # Should not crash; symbols should be near zero
+        assert len(result["symbols"]) > 0
+        assert np.max(np.abs(result["symbols"])) < 0.01
+
+
+class TestCostasFallback:
+    """Test Costas loop fallback for unknown order."""
+
+    def test_unknown_order_uses_imag_error(self):
+        """Order not in {2,4,8} falls back to imag-only phase error."""
+        n = 500
+        sig = np.exp(1j * np.linspace(0, 10, n)).astype(np.complex64)
+        out = costas_carrier_recovery(sig, order=6, loop_bw=0.01)
+        assert len(out) == n
+        # Should produce a bounded output (loop didn't diverge)
+        assert np.all(np.isfinite(out))
+
+
+class TestGardnerEdgeCases:
+    """Test Gardner timing recovery edge cases."""
+
+    def test_sps_below_one_passthrough(self):
+        """sps ≤ 1 returns signal unchanged."""
+        sig = np.ones(100, dtype=np.complex64)
+        out = gardner_timing_recovery(sig, sps=1.0)
+        assert np.array_equal(out, sig)
+
+    def test_simple_method_sps_below_one(self):
+        """symbol_timing_recovery with sps ≤ 1 returns signal unchanged."""
+        sig = np.ones(100, dtype=np.complex64)
+        out = symbol_timing_recovery(sig, fs=100.0, baud_rate=200.0)
+        assert np.array_equal(out, sig)
+
+    def test_simple_method_int_sps_of_one(self):
+        """sps in (1, 1.5] rounds to 1 sample/symbol → unchanged output."""
+        sig = np.ones(100, dtype=np.complex64)
+        # sps = 1.2e6 / 1e6 = 1.2 → int_sps = 1 → legacy decimation skipped
+        out = symbol_timing_recovery(sig, fs=1.2e6, baud_rate=1e6, method="simple")
+        assert np.array_equal(out, sig)
+
+    def test_simple_method_short_signal_each_offset_skipped(self):
+        """All decimated offsets shorter than 10 samples → `continue` path."""
+        sig = np.ones(5, dtype=np.complex64)
+        # sps = 2e6 / 1e6 = 2.0 → int_sps = 2; decimated lengths 3 and 2 < 10
+        out = symbol_timing_recovery(sig, fs=2e6, baud_rate=1e6, method="simple")
+        assert len(out) == 3
+
+    def test_zero_baud_rate_passthrough(self):
+        """Zero baud_rate returns signal unchanged."""
+        sig = np.ones(100, dtype=np.complex64)
+        out = symbol_timing_recovery(sig, fs=1000.0, baud_rate=0.0)
+        assert np.array_equal(out, sig)
+
+    def test_simple_method_basic(self):
+        """Simple timing recovery method returns reasonable output."""
+        num_symbols = 200
+        sps = 8
+        signal, _ = generate_modulated_signal("QPSK", num_symbols, sps, snr_db=20.0)
+        fs = sps * 1e6
+        baud_rate = 1e6
+        recovered = symbol_timing_recovery(signal, fs, baud_rate, method="simple")
+        # Should recover a reasonable number of symbols
+        assert 0.5 * num_symbols <= len(recovered) <= 2.0 * num_symbols
+
+    def test_gardner_boundary_break(self):
+        """Cubic-interpolation guard trips `break` on a tiny signal."""
+        sig = np.exp(1j * np.linspace(0, 2, 5)).astype(np.complex64)
+        out = gardner_timing_recovery(sig, sps=1.1, loop_bw=0.01)
+        # Produces a (short) symbol sequence without crashing
+        assert isinstance(out, np.ndarray)
+        assert len(out) < len(sig)
+
+    def test_gardner_timing_offset_clamp(self):
+        """Strong off-frequency tones drive the fractional-timing `mu` clamp.
+
+        A large steady timing error integrated at high loop gain repeatedly
+        drives the fractional offset past +0.5 (positive clamp) or -0.5
+        (negative clamp) depending on the offset's sign.
+        """
+        # Positive clamp (mu > 0.5)
+        sig_pos = 20.0 * np.exp(1j * 2 * np.pi * 0.02 * np.arange(5000)).astype(np.complex64)
+        out_pos = gardner_timing_recovery(sig_pos, sps=8, loop_bw=0.2)
+        # Negative clamp (mu < -0.5), different offset sign
+        sig_neg = 20.0 * np.exp(1j * 2 * np.pi * 0.01 * np.arange(5000)).astype(np.complex64)
+        out_neg = gardner_timing_recovery(sig_neg, sps=8, loop_bw=0.2)
+        for out in (out_pos, out_neg):
+            assert len(out) < len(sig_neg)
+            assert np.all(np.isfinite(out))
 
 
 if __name__ == "__main__":

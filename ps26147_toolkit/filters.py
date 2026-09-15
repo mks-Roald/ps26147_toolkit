@@ -136,8 +136,11 @@ def spectral_denoise(
     mag = np.abs(stft_matrix)
     phase = np.angle(stft_matrix)
 
-    # Estimate noise floor per frequency bin using lower quartile (25th percentile)
-    noise_est = np.percentile(mag, 25, axis=0) * noise_reduction_factor
+    # Robust scalar noise-floor estimate: the median magnitude over the whole
+    # spectrum reflects the stationary noise level, while a narrowband carrier
+    # occupies only a few bins and leaves the median unchanged. (A per-bin
+    # lower-quartile threshold erroneously self-cancels coherent signal bins.)
+    noise_est = float(np.median(mag)) * noise_reduction_factor
 
     # Spectral subtraction with noise floor clamp
     clean_mag = np.maximum(mag - noise_est, 0.05 * mag)
@@ -157,9 +160,12 @@ def spectral_denoise(
         out_sig[start : start + n_fft] += clean_frames[i]
         window_norm[start : start + n_fft] += window
 
-    # Normalize overlapping windows
-    nonzero = window_norm > 1e-6
-    out_sig[nonzero] /= window_norm[nonzero]
+    # Normalize overlap-added frames only where the analysis-window coverage is
+    # meaningful (central region). Near the signal edges window_norm → 0, and
+    # dividing there amplifies residual noise to arbitrary magnitudes.
+    valid = window_norm > 0.5 * float(np.max(window_norm))
+    out_sig[valid] /= window_norm[valid]
+    out_sig[~valid] = 0.0
 
     return out_sig
 
