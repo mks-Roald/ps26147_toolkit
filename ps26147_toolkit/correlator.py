@@ -255,7 +255,15 @@ def auto_discover_preamble(
         Preamble candidate lengths to test.
     """
     if len(bitstream) < min_frame_len * 2:
-        return {"discovered": False, "reason": "Bitstream too short for periodicity analysis"}
+        return {
+            "discovered": False,
+            "estimated_frame_period": None,
+            "periodicity_strength": 0.0,
+            "matched_standard_sync": None,
+            "standard_sync_confidence": None,
+            "candidate_preamble_bits": None,
+            "candidate_preamble_hex": None,
+        }
 
     # 1. Bipolar circular / lag autocorrelation of bitstream to find frame period T
     bipolar = np.where(bitstream == 1, 1.0, -1.0).astype(np.float32)
