@@ -20,15 +20,15 @@ needed to make "accurate" a measurable, checkable claim instead of a hope.
 
 | Area | Status | Evidence |
 |---|---|---|
-| `auto_discover_preamble` missing-key crash | ✅ Fixed locally (not pushed) | User-confirmed `.get()` fix |
-| `auto_discover_preamble` overwrites `discovered_preamble` in a loop | 🔴 Open | Still present, `correlator.py` — see §1.2 |
-| Soft-decision Viterbi "validation needed" | ✅ Fixed & regression-gated | §1.3 root-caused; `test_soft_decision_viterbi_awgn_ber_curve` now exercises a real BER-vs-SNR curve (see §1.3/§1.3.1) |
-| `estimate_snr` clipped at 50 dB ceiling | ✅ Fixed | Ceiling → 80 dB; `snr_clipped` flag + `format_snr()` in UI (§1.4) |
-| `estimate_baud_rate` transition detector destroys periodicity via `abs()` | 🔴 Open | See §1.5 |
-| EVM undefined/meaningless for FSK | ✅ Fixed | Deviation-domain `compute_fsk_evm()` + FSK LLR branch (§1.6) |
-| Bandwidth (`bw_10db`) underestimates vs. Carson's rule | ⚠️ Needs calibration | See §1.7 |
-| No ground-truth test-signal corpus | 🔴 Missing entirely | This is the main ask — §2 |
-| No automated accuracy scoring / CI regression gate | 🔴 Missing entirely | §3 |
+| `auto_discover_preamble` missing-key crash | ✅ Fixed | Defensive `.get()` on caller + early-return dict shape (`1e6ac94`, `d751b52`) — see §1.1 |
+| `auto_discover_preamble` overwrites `discovered_preamble` in a loop | ✅ Fixed | Preamble length now selected by frame stability, not longest-fit (`ee4c6d9`) — see §1.2 |
+| Soft-decision Viterbi "validation needed" | ✅ Fixed & regression-gated | §1.3 root-caused; `test_soft_decision_viterbi_awgn_ber_curve` exercises a real BER-vs-SNR curve (`1453ea7`, `600a40e`) — see §1.3/§1.3.1 |
+| `estimate_snr` clipped at 50 dB ceiling | ✅ Fixed | Ceiling → 80 dB; `snr_clipped` flag + `format_snr()` in UI (`aaccbab`) — §1.4 |
+| `estimate_baud_rate` transition detector destroys periodicity via `abs()` | ✅ Fixed | Signed phase-diff FSK baud detection (`2567f4c`) — §1.5 |
+| EVM undefined/meaningless for FSK | ✅ Fixed | Deviation-domain `compute_fsk_evm()` + FSK soft-LLR branch (`4d8b502`) — §1.6 |
+| Bandwidth (`bw_10db`) underestimates vs. Carson's rule | ✅ Fixed | Per-modulation contour-ladder calibration (`2452e32` + `f8c6f3f`) — §1.7 |
+| No ground-truth test-signal corpus | ✅ Partially built | Generator (`00955e3`); `_cal/` now holds the 14-file .wav MPC leg (`0e2581b`) — §2, `.iq` leg + SNR ladder still to generate |
+| No automated accuracy scoring / CI regression gate | 🔴 Open | `scripts/run_accuracy_report.py` still missing — §3 |
 
 ---
 
@@ -290,6 +290,19 @@ of the sign fix in §1.3.
 
 ### 1.7 Bandwidth (`bw_10db`) likely underestimates true occupied bandwidth
 
+> **Status: Implemented ✅ (`2452e32`, `f8c6f3f`).** Went beyond the plan's
+> "surface `obw_99`" cheap fix: added a full **per-modulation contour-ladder**
+> calibration in `parameter_extractor.py`. `estimate_bandwidth_all()` already
+> exposed `bw_10db`/`obw_95`/`obw_99`; the new estimator measures bandwidth at a
+> ladder of contours (−10…−30 dB from the noise-compensated peak,
+> `_BW_CONTOURS`) and selects the contour calibrated to each modulation class
+> (`_BW_CONTOUR_DB`: BPSK/QPSK/8PSK/16QAM/64QAM → −25 dB, 2FSK → −20 dB, 4FSK →
+> −25 dB). `extract_signal_parameters` accepts a `modulation` argument and
+> returns both `bandwidth_contour_db` and the full `bandwidth_ladder_hz`.
+> Calibrated against the ground-truth corpus: linear 1–10% error, 2FSK <4%,
+> 4FSK ~10–16%. The CLI (`process_file`) classifies first, then passes the
+> modulation through.
+
 Measured ~1.3 kHz on the reference file vs. a Carson's-rule prediction of
 ~3.4 kHz and an independent FFT-based measurement of ~2.3 kHz on the same raw
 samples. `estimate_bandwidth_all()` already computes `obw_95`/`obw_99` in the
@@ -403,6 +416,11 @@ ad hoc file.)
 ---
 
 ## 3. Validation Harness & Regression Gate
+
+> **Status: Open 🔴 (2026-09-16).** This is the last remaining item in the plan.
+> The §2 corpus (`.wav` leg) and all of §1's fixes now exist and are committed,
+> so `scripts/run_accuracy_report.py` has real ground truth + fixed pipeline to
+> validate — the natural next step.
 
 Once §2's corpus exists, add `scripts/run_accuracy_report.py`:
 
