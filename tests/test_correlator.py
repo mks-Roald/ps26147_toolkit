@@ -89,10 +89,29 @@ def test_auto_preamble_discovery():
     assert res["matched_standard_sync"] == "DVB-S (0x47)", f"Expected DVB-S match, got {res['matched_standard_sync']}"
     print(f"[PASS] Auto-Preamble Discovery (Detected {res['matched_standard_sync']} with confidence {res['standard_sync_confidence']:.2f})")
 
+def test_auto_preamble_short_stream_returns_full_key_shape():
+    """auto_discover_preamble on a short bitstream must return every key the
+    normal path returns — not just 'discovered' + 'reason' — so callers using
+    .get() don't hit a shape mismatch."""
+    short_stream = np.zeros(4, dtype=np.uint8)
+    res = auto_discover_preamble(short_stream)
+    # Must carry the full key set
+    for key in ("discovered", "estimated_frame_period", "periodicity_strength",
+                "matched_standard_sync", "standard_sync_confidence",
+                "candidate_preamble_bits", "candidate_preamble_hex"):
+        assert key in res, f"Missing key '{key}' in early-return dict"
+    # Sanity values
+    assert res["discovered"] is False
+    assert res["estimated_frame_period"] is None
+    assert res["matched_standard_sync"] is None
+    assert res["candidate_preamble_bits"] is None
+    print("[PASS] Early-return dict carries full key shape")
+
 if __name__ == "__main__":
     test_hex_conversion()
     test_barker_correlation()
     test_inverted_sync_correlation()
     test_frame_synchronization()
     test_auto_preamble_discovery()
+    test_auto_preamble_short_stream_returns_full_key_shape()
     print("\n All Bitstream Correlation & Frame Synchronization Tests PASSED!")
