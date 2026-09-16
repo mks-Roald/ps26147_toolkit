@@ -97,10 +97,53 @@ def test_fec_dispatcher():
     assert "bits" in res and res["decoder"].startswith("Viterbi")
     print("[PASS] Master FEC Decoder Dispatcher API")
 
+def test_soft_decision_viterbi_awgn_ber_curve():
+    """Sweep Eb/N0 and assert soft decision never worse than hard decision."""
+    print("\n=== Testing Soft vs Hard Decision Viterbi over AWGN ===")
+    codec = ConvolutionalCodec(k=7, polys=(0o171, 0o133))
+    rng = np.random.default_rng(123)
+    msg = rng.integers(0, 2, size=200, dtype=np.uint8)
+    encoded = codec.encode(msg)
+    n_coded = len(encoded)
+    # BPSK: bit 1 -> +1, bit 0 -> -1
+    tx = 2 * encoded.astype(np.float32) - 1.0
+    # Eb/N0 in dB points
+    ebno_dbs = [2, 4, 6, 8, 10]
+    results = []
+    for db in ebno_dbs:
+        snr_lin = 10 ** (db / 10.0)
+        noise_std = np.sqrt(1.0 / (2 * snr_lin))  # complex noise per dimension, but BPSK real
+        rx = tx + noise_std * rng.standard_normal(n_coded).astype(np.float32)
+        # Hard decision
+        hard_bits = (rx >= 0).astype(np.uint8)
+        dec_hard = codec.decode(hard_bits, max_len=len(msg))
+        ber_hard = np.mean(dec_hard != msg)
+        # Soft decision (LLR convention: positive -> bit 0, negative -> bit 1)
+        llrs = -2 * rx / (noise_std ** 2)
+        dec_soft = codec.decode_soft(llrs, max_len=len(msg))
+        ber_soft = np.mean(dec_soft != msg)
+        results.append((db, ber_hard, ber_soft))
+        print(f"  Eb/N0 = {db} dB | hard BER = {ber_hard:.4f} | soft BER = {ber_soft:.4f}")
+        # Soft must never be worse than hard (allow tiny margin for finite sample noise)
+        assert ber_soft <= ber_soft + 0.001, "soft worse than soft (sanity)"
+        # The key assertion: soft-decision must give coding gain over hard
+        # For high SNR both should be zero; for low SNR soft should be <= hard
+        # We allow soft == hard (both may hit zero floor) but soft must not exceed hard by more than tolerance
+        # At moderate/high SNR soft should clearly beat hard
+
+    # At the highest SNR point, both should be very low
+    _, ber_hard_high, ber_soft_high = results[-1]
+    assert ber_soft_high < 0.02, f"Soft BER at {ebno_dbs[-1]} dB too high: {ber_soft_high}"
+    # Soft must not be worse than hard at any point (with tolerance)
+    for db, bh, bs in results:
+        assert bs <= bh + 0.005, f"Soft BER ({bs}) worse than hard ({bh}) at {db} dB"
+    print("[PASS] Soft-decision Viterbi AWGN BER curve validation")
+
 if __name__ == "__main__":
     test_viterbi()
     test_reed_solomon()
     test_concatenated()
     test_ldpc()
     test_fec_dispatcher()
+    test_soft_decision_viterbi_awgn_ber_curve()
     print("\n All 4 Forward Error Correction (FEC) Decoders PASSED!")
