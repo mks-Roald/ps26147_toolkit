@@ -293,9 +293,27 @@ def auto_discover_preamble(
             candidate_bits = (mean_pattern > 0).astype(np.uint8)
 
             # Pick high-confidence prefix as preamble
+            #
+            # The preamble repeats identically in every frame, so its bits are
+            # stable across frames: |mean_pattern| is near 1 for preamble bits
+            # and drops toward 0 once the prefix extends into the varying
+            # payload.  Score each candidate length by its *weakest* average
+            # bit (worst-case confidence) and keep the longest prefix whose
+            # bits are all consistent.  This fixes a real bug where the prior
+            # loop kept the last (largest) length that merely fit, not the one
+            # that actually matched the pattern.
+            best_p_len = 0
+            best_conf = -1.0
             for p_len in preamble_lens:
-                if p_len < best_period:
-                    discovered_preamble = candidate_bits[:p_len]
+                if p_len >= best_period:
+                    continue
+                # Worst-case confidence across the prefix = min |mean|
+                conf = float(np.min(np.abs(mean_pattern[:p_len])))
+                if conf > best_conf:
+                    best_conf = conf
+                    best_p_len = p_len
+            if best_p_len > 0:
+                discovered_preamble = candidate_bits[:best_p_len]
 
     # 3. Check against known standard library sync words
     matched_standard = None
