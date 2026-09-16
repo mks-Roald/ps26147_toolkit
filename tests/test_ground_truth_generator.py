@@ -14,6 +14,7 @@ import pytest
 from scripts.generate_ground_truth_corpus import (
     generate_test_case,
     text_to_bits,
+    bits_to_symbols,
 )
 from ps26147_toolkit.preprocess import load_wav, load_iq
 from ps26147_toolkit.parameter_extractor import extract_signal_parameters
@@ -31,6 +32,33 @@ def test_text_to_bits_roundtrip():
     raw = np.packbits(bits).tobytes()
     assert raw.startswith(b"hello")
     assert len(raw) >= 5  # includes padding
+
+
+def test_64qam_symbols_are_true_64qam():
+    """Regression for a generator bug (found during Phase 6 §4 item 7).
+
+    ``bits_to_symbols("64QAM")`` used to fall through to the ``"QPSK" in m or
+    ``"4QAM" in m`` branch because ``"64QAM"`` contains the substring ``"4QAM"``
+    — silently producing only the four QPSK corners (±0.707 ± 0.707j).  A real
+    64-QAM constellation spans all 8 PAM levels (±7..±1)/sqrt(42) ≈ ±1.08.
+    """
+    bits = text_to_bits("the quick brown fox jumps over the lazy dog 0123456789" * 3)
+    symbols = bits_to_symbols(bits, "64QAM")
+    # Real 64-QAM has 8 distinct I/Q levels and (for a long random payload) a
+    # large fraction of the 64 points populated.
+    i_levels = np.unique(np.round(symbols.real, 2))
+    q_levels = np.unique(np.round(symbols.imag, 2))
+    assert len(i_levels) == 8 and len(q_levels) == 8, (
+        f"64QAM must span 8 I/Q levels, got {len(i_levels)}/{len(q_levels)} (Phase 6 §4.7 regression)"
+    )
+    # Unless the payload is degenerate, we should populate well more than the
+    # 4 QPSK corners the buggy path produced.
+    assert len(np.unique(symbols)) > 20, (
+        f"64QAM produced only {len(np.unique(symbols))} distinct symbols"
+    )
+    # Level span must reach ±7/sqrt(42) ≈ ±1.08, not the QPSK corners ±0.707
+    assert abs(max(abs(i_levels))) > 0.9
+    assert abs(max(abs(q_levels))) > 0.9
 
 
 def test_generate_write_and_load_wav(tmp_corpus):
