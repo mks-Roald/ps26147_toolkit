@@ -37,40 +37,49 @@ def text_to_bits(text: str) -> np.ndarray:
     return np.unpackbits(np.frombuffer(raw, dtype=np.uint8))
 
 
+def _canonical_modulation(modulation: str) -> str:
+    """Resolve a modulation name to a canonical token.
+
+    Uses exact token identity (after stripping spaces/hyphens and uppercasing)
+    so that ``64QAM`` is never shadowed by the substring ``4QAM`` inside an
+    ``in`` check (a real bug: ``"QPSK" in m or "4QAM" in m`` matched
+    ``"64QAM"`` and silently produced QPSK corners).  Aliases like ``QPSK`` /
+    ``4QAM`` / ``4-QAM`` and ``2FSK`` / ``2-FSK`` collapse to one canonical
+    form.
+    """
+    m = modulation.upper().replace(" ", "").replace("-", "")
+    for token in ("64QAM", "16QAM", "4QAM", "8PSK", "QPSK", "BPSK", "4FSK", "2FSK"):
+        if m == token:
+            return token
+    # Bare "FSK" and "QAM" (no order) default to the binary forms
+    if m == "FSK":
+        return "2FSK"
+    if m == "QAM":
+        return "4QAM"
+    return m
+
+
 def bits_to_symbols(bits: np.ndarray, modulation: str) -> np.ndarray:
     """Map an info-bit array to complex baseband symbols (one per symbol)."""
-    m = modulation.upper()
-    # Ensure bits are a multiple of bits-per-symbol by trimming the tail
-    if "BPSK" in m:
-        bps = 1
-    elif "QPSK" in m or "4QAM" in m or "4-QAM" in m:
-        bps = 2
-    elif "8PSK" in m:
-        bps = 3
-    elif "16QAM" in m or "16-QAM" in m:
-        bps = 4
-    elif "64QAM" in m or "64-QAM" in m:
-        bps = 6
-    elif "4FSK" in m or "4-FSK" in m:
-        bps = 2
-    elif "FSK" in m or "2FSK" in m or "2-FSK" in m:
-        bps = 1
-    else:
+    m = _canonical_modulation(modulation)
+
+    bps = {"BPSK": 1, "QPSK": 2, "8PSK": 3, "16QAM": 4, "64QAM": 6, "2FSK": 1, "4FSK": 2}.get(m)
+    if bps is None:
         raise ValueError(f"Unsupported modulation: {modulation}")
 
     usable = (len(bits) // bps) * bps
     bits = bits[:usable].reshape(-1, bps)
 
     symbols: list[complex] = []
-    if "BPSK" in m:
+    if m == "BPSK":
         for row in bits:
             symbols.append(1.0 if row[0] else -1.0)
-    elif "QPSK" in m or "4QAM" in m or "4-QAM" in m:
+    elif m == "QPSK":
         for b0, b1 in bits:
             re = (1.0 if b0 == 0 else -1.0) / np.sqrt(2)
             im = (1.0 if b1 == 0 else -1.0) / np.sqrt(2)
             symbols.append(re + 1j * im)
-    elif "8PSK" in m:
+    elif m == "8PSK":
         # Gray map matching demodulator.slice_symbols_to_bits
         gray_map = {tuple(v): k for k, v in {
             0: [0, 0, 0], 1: [0, 0, 1], 2: [0, 1, 1], 3: [0, 1, 0],
@@ -79,13 +88,13 @@ def bits_to_symbols(bits: np.ndarray, modulation: str) -> np.ndarray:
         for row in bits:
             sec = gray_map[tuple(int(b) for b in row)]
             symbols.append(np.exp(1j * sec * (np.pi / 4)))
-    elif "64QAM" in m or "64-QAM" in m:
+    elif m == "64QAM":
         levels = np.arange(-7, 8, 2) / np.sqrt(42)
         for row in bits:
             idx_i = (row[0] << 2) | (row[1] << 1) | row[2]
             idx_q = (row[3] << 2) | (row[4] << 1) | row[5]
             symbols.append(levels[idx_i] + 1j * levels[idx_q])
-    elif "16QAM" in m or "16-QAM" in m:
+    elif m == "16QAM":
         levels = np.array([-3, -1, 1, 3]) / np.sqrt(10)
         # Gray-coded I/Q levels (matches demodulator level_bits)
         level_idx = {(0, 0): 0, (0, 1): 1, (1, 1): 2, (1, 0): 3}
@@ -93,13 +102,13 @@ def bits_to_symbols(bits: np.ndarray, modulation: str) -> np.ndarray:
             idx_i = level_idx[tuple(int(b) for b in row[:2])]
             idx_q = level_idx[tuple(int(b) for b in row[2:4])]
             symbols.append(levels[idx_i] + 1j * levels[idx_q])
-    elif "4FSK" in m or "4-FSK" in m:
+    elif m == "4FSK":
         # Signs for 4-level frequency deviation
         for row in bits:
             code = (row[0] << 1) | row[1]
             dev = {0: -0.75, 1: -0.25, 2: 0.25, 3: 0.75}[code]
             symbols.append(complex(dev, 0.0))
-    else:  # 2FSK / FSK
+    else:  # 2FSK
         for row in bits:
             symbols.append(1.0 if row[0] else -1.0)
 
