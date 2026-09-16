@@ -70,18 +70,15 @@ def test_parameter_extraction_recovers_ground_truth(tmp_corpus):
 
 
 def test_2fsk_baud_known_bug(tmp_corpus):
-    """The 2FSK baud estimator is currently broken (surfaces the Phase 6 §1.5
-    ``np.abs()`` on phase-difference bug).  The corpus should reproduce it:
-    this test marks the known limitation so a future fix can flip it to green."""
+    """The 2FSK baud estimator was broken (Phase 6 §1.5: ``np.abs()`` on the
+    phase difference collapsed FSK's alternating ±Δf into a constant,
+    destroying periodicity).  The corpus demonstrated the bug; this test locks
+    in the fix.  Initially asserted the bug was present; now asserts accuracy."""
     path, gt = generate_test_case("2FSK", out_dir=str(tmp_corpus))
     sig, meta = load_wav(str(path))
     params = extract_signal_parameters(sig, meta.fs)
     baud_err = abs(params["baud_rate"] - gt["baud_rate"]) / gt["baud_rate"]
-    # Currently ~87% off — this WILL fail until §1.5 is fixed.  assert that the
-    # bug is faithfully reproduced (bad estimate) so the corpus remains a live
-    # regression signal.
-    assert baud_err > 0.1, (f"expected §1.5 bug (baud off); got baud_err "
-                            f"{baud_err:.3f} — fix may already be applied")
+    assert baud_err < 0.05, f"2FSK baud err {baud_err:.3f} (want <0.05)"
 
 
 def test_demodulator_recovers_payload(tmp_corpus):
