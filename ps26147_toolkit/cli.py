@@ -5,14 +5,9 @@ import pandas as pd
 import numpy as np
 
 from .preprocess import load_iq, load_wav
-from .filters import clean_signal, remove_dc_offset, bandpass_filter, spectral_denoise
+from .filters import clean_signal
 from .feature_extractor import compute_psd, compute_spectrogram, plot_spectrogram
-from .parameter_extractor import (
-    estimate_center_frequency,
-    estimate_bandwidth,
-    estimate_snr,
-    estimate_baud_rate,
-)
+from .parameter_extractor import extract_signal_parameters, estimate_center_frequency, estimate_bandwidth
 from .classifier import ModulationClassifier
 
 
@@ -37,48 +32,35 @@ def process_file(
     else:
         raise ValueError("Unsupported file type. Use .iq or .wav")
 
-    # Initial spectral estimation
-    nperseg = min(1024, signal.size)
-    freqs, psd = compute_psd(signal, fs, nperseg=nperseg)
-    center_freq = estimate_center_frequency(freqs, psd)
-    bw = estimate_bandwidth(freqs, psd)
+    # Classify modulation first so the extractor can use the calibrated
+    # per-modulation occupied-bandwidth contour (Phase 6 §1.7).
+    classifier = ModulationClassifier()
+    modulation = classifier.predict(signal, fs)
 
     # Optional noise filtering pipeline
     if filter_noise or denoise:
+        nperseg = min(1024, signal.size)
+        freqs, psd = compute_psd(signal, fs, nperseg=nperseg)
+        fc = estimate_center_frequency(freqs, psd)
+        bw = estimate_bandwidth(freqs, psd)
         signal = clean_signal(
             signal,
             fs=fs,
-            center_freq=center_freq,
+            center_freq=fc,
             bandwidth=bw,
             enable_dc_removal=True,
             enable_bandpass=filter_noise,
             enable_denoise=denoise,
         )
-        # Recompute spectral parameters on cleaned signal
-        freqs, psd = compute_psd(signal, fs, nperseg=nperseg)
-        center_freq = estimate_center_frequency(freqs, psd)
-        bw = estimate_bandwidth(freqs, psd)
-
-    snr = estimate_snr(psd, freqs=freqs, center_freq=center_freq, bandwidth=bw)
-    baud = estimate_baud_rate(signal, fs, center_freq=center_freq, bandwidth=bw)
-
-    # Modulation classification
-    classifier = ModulationClassifier()
-    modulation = classifier.predict(signal, fs)
 
     if plot:
         t, f, Sxx_db = compute_spectrogram(signal, fs)
         plot_spectrogram(t, f, Sxx_db, title=f"Spectrogram – {p.name}")
 
-    report = {
-        "file": str(p),
-        "modulation": modulation,
-        "center_frequency_hz": float(center_freq),
-        "bandwidth_hz": float(bw),
-        "snr_db": float(snr),
-        "baud_rate": float(baud),
-    }
-    return report
+    params = extract_signal_parameters(signal, fs, modulation=modulation)
+    params["file"] = str(p)
+    params["modulation"] = modulation
+    return params
 
 
 def main():

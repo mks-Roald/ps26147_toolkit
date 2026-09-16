@@ -614,10 +614,88 @@ def estimate_baud_rate(
     return float(valid_freqs[max_idx])
 
 
+# ---------------------------------------------------------------------------
+# Calibrated occupied-bandwidth estimation (Phase 6 §1.7)
+#
+# The reported `bandwidth_hz` used to be a single −10 dB-from-peak contour,
+# which *underestimates* true occupied bandwidth for every modulation.  A
+# single contour cannot be accurate for both shaped-linear carriers (RRC,
+# occupied width (1+α)·baud) and direct-keyed FSK tones (Carson 2·Δf+baud),
+# so the estimator runs a *ladder* of contours and selects the one calibrated
+# to each modulation class.
+# ---------------------------------------------------------------------------
+
+# Candidate contours (dB down from the compensated spectral peak) to measure.
+# Contours below ~ −35 dB are excluded: on short/typical signals the estimate
+# over-reads from spectral leakage and diverges from the true occupied width.
+_BW_CONTOURS = (10, 15, 20, 25, 30)
+
+# Calibrated contour per modulation class, chosen to minimise relative error
+# against the corpus ground truth.  All shaped-linear modulations and 4FSK
+# sit at −25 dB (the leak-robust edge); 2FSK needs −20 dB (its tone spread).
+_BW_CONTOUR_DB = {
+    "BPSK": 25,
+    "QPSK": 25,
+    "8PSK": 25,
+    "16QAM": 25,
+    "64QAM": 25,
+    "2FSK": 20,
+    "4FSK": 25,
+}
+# Fallback contour used when the modulation is unknown.
+_DEFAULT_BW_CONTOUR_DB = 25
+
+
+def _canonical_class(modulation: Optional[str]) -> str:
+    """Normalise a modulation name to a calibration key, or '' if unknown."""
+    if not modulation:
+        return ""
+    m = modulation.upper().replace(" ", "").replace("-", "")
+    return m if m in _BW_CONTOUR_DB else ""
+
+
+def estimate_bandwidth_ladder(
+    freqs: np.ndarray,
+    psd: np.ndarray,
+    contours: tuple[int, ...] = _BW_CONTOURS,
+) -> Dict[int, float]:
+    """Measure occupied bandwidth at each dB-from-peak contour in *contours*.
+
+    Uses the same noise-floor-compensated magnitude contour as
+    :func:`estimate_bandwidth`.  Returns ``{contour_db: bandwidth_hz}`` where
+    ``contour_db`` is positive (down from the peak, e.g. ``20`` == −20 dB).
+    """
+    if len(psd) < 2 or len(freqs) < 2:
+        return {db: 0.0 for db in contours}
+
+    noise_floor = _compute_masked_noise_floor(psd)
+    psd_sub = np.maximum(psd - noise_floor, 1e-15)
+    peak_val = np.max(psd_sub)
+    bin_width = abs(float(freqs[1] - freqs[0])) if len(freqs) > 1 else 1.0
+
+    out: Dict[int, float] = {}
+    for db in contours:
+        thresh = peak_val * (10.0 ** (-db / 10.0))
+        indices = np.where(psd_sub >= thresh)[0]
+        if len(indices) == 0:
+            out[db] = bin_width
+        else:
+            bw = abs(float(freqs[indices[-1]] - freqs[indices[0]]))
+            out[db] = max(bw, bin_width)
+    return out
+
+
+def select_bandwidth_contour(modulation: Optional[str]) -> int:
+    """Return the calibrated contour dB for a modulation class (positive dB)."""
+    cls = _canonical_class(modulation)
+    return int(_BW_CONTOUR_DB[cls]) if cls else _DEFAULT_BW_CONTOUR_DB
+
+
 def extract_signal_parameters(
     signal: np.ndarray,
     fs: float,
     nperseg: int = 1024,
+    modulation: Optional[str] = None,
 ) -> Dict[str, Any]:
     """High-level Phase 2 pipeline orchestrator to extract all physical signal parameters.
 
@@ -629,6 +707,12 @@ def extract_signal_parameters(
         Sampling frequency in Hz.
     nperseg : int, default=1024
         FFT segment length for Welch PSD computation.
+    modulation : str, optional
+        Known modulation class (e.g. ``"BPSK"``).  When provided the bandwidth
+        estimator selects the contour dB that yields the lowest relative error
+        for that modulation class (Phase 6 §1.7 calibration).  When *None*,
+        falls back to a fixed −25 dB contour that is conservative but
+        reasonably accurate across all modulations tested.
 
     Returns
     -------
@@ -636,7 +720,8 @@ def extract_signal_parameters(
         Dictionary of extracted parameters:
         - 'center_frequency_hz': float
         - 'center_frequency_confidence': float
-        - 'bandwidth_hz': float (BW -10dB)
+        - 'bandwidth_hz': float — occupied bandwidth from the calibrated contour
+        - 'bandwidth_contour_db': int — dB contour used (negative sign implied)
         - 'bandwidth_3db_hz': float
         - 'obw_95_hz': float
         - 'obw_99_hz': float
@@ -652,7 +737,9 @@ def extract_signal_parameters(
 
     fc, fc_conf = estimate_center_frequency(freqs, psd, return_confidence=True)
     bw_info = estimate_bandwidth_all(freqs, psd)
-    bw = bw_info["bw_10db"]
+    contour_db = select_bandwidth_contour(modulation)
+    ladder = estimate_bandwidth_ladder(freqs, psd)
+    bw = ladder[contour_db]
 
     snr = estimate_snr(psd, freqs=freqs, center_freq=fc, bandwidth=bw, signal=signal, fs=fs)
     baud = estimate_baud_rate(signal, fs, center_freq=fc, bandwidth=bw)
@@ -661,6 +748,8 @@ def extract_signal_parameters(
         "center_frequency_hz": float(fc),
         "center_frequency_confidence": float(fc_conf),
         "bandwidth_hz": float(bw),
+        "bandwidth_contour_db": int(contour_db),
+        "bandwidth_ladder_hz": {int(k): float(v) for k, v in ladder.items()},
         "bandwidth_3db_hz": float(bw_info["bw_3db"]),
         "obw_95_hz": float(bw_info["obw_95"]),
         "obw_99_hz": float(bw_info["obw_99"]),
