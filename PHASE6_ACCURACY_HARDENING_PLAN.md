@@ -23,7 +23,7 @@ needed to make "accurate" a measurable, checkable claim instead of a hope.
 | `auto_discover_preamble` missing-key crash | ✅ Fixed locally (not pushed) | User-confirmed `.get()` fix |
 | `auto_discover_preamble` overwrites `discovered_preamble` in a loop | 🔴 Open | Still present, `correlator.py` — see §1.2 |
 | Soft-decision Viterbi "validation needed" | 🔴 Root cause now found | See §1.3 — reproduced in 10 lines of code |
-| `estimate_snr` clipped at 50 dB ceiling | 🔴 Open | See §1.4 |
+| `estimate_snr` clipped at 50 dB ceiling | ✅ Fixed | Ceiling → 80 dB; `snr_clipped` flag + `format_snr()` in UI (§1.4) |
 | `estimate_baud_rate` transition detector destroys periodicity via `abs()` | 🔴 Open | See §1.5 |
 | EVM undefined/meaningless for FSK | 🔴 Open | See §1.6 |
 | Bandwidth (`bw_10db`) underestimates vs. Carson's rule | ⚠️ Needs calibration | See §1.7 |

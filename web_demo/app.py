@@ -29,6 +29,7 @@ from ps26147_toolkit.parameter_extractor import (
     estimate_bandwidth,
     estimate_snr,
     estimate_baud_rate,
+    _SNR_CLIP_CEILING_DB,
 )
 from ps26147_toolkit.classifier import ModulationClassifier
 from ps26147_toolkit.demodulator import demodulate_signal
@@ -165,6 +166,14 @@ else:
     tolerate_inv = True
 
 uploaded_files = st.file_uploader("Upload files", type=["iq", "wav", "zip"], accept_multiple_files=True)
+
+
+def format_snr(snr_db: float) -> str:
+    """Format an SNR reading, flagging a ceiling-pegged value instead of letting
+    it masquerade as a precise measurement (Phase 6 §1.4)."""
+    if snr_db >= _SNR_CLIP_CEILING_DB:
+        return f"≥{_SNR_CLIP_CEILING_DB:.0f} dB (clipped)"
+    return f"{snr_db:.2f} dB"
 
 
 def process_file(file_path: Path, display_name: str, fs_iq: float = 1000000.0) -> dict:
@@ -339,7 +348,7 @@ def process_file(file_path: Path, display_name: str, fs_iq: float = 1000000.0) -
     m1.metric("Modulation", effective_mod, help="Auto-detected or manually overridden modulation")
     m2.metric("Center Freq", f"{center_freq:,.1f} Hz")
     m3.metric("Bandwidth", f"{bw:,.1f} Hz")
-    m4.metric("In-Band SNR", f"{snr:.2f} dB", delta=f"{snr - raw_snr:+.2f} dB" if enable_filtering else None)
+    m4.metric("In-Band SNR", format_snr(snr), delta=f"{snr - raw_snr:+.2f} dB" if enable_filtering else None)
     m5.metric("Est. Baud Rate", f"{baud:,.1f} Baud")
     if sync_result and sync_result.get("sync_found"):
         m6.metric("Frame Sync", f"{sync_result['num_frames']} Frames", help=f"Frame len: {sync_result.get('detected_frame_length')} bits")

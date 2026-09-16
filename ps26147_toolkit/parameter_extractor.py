@@ -249,6 +249,15 @@ def estimate_bandwidth_all(freqs: np.ndarray, psd: np.ndarray) -> Dict[str, floa
     }
 
 
+# Upper bound for reported SNR (dB).  A reading at this ceiling means the true
+# SNR is *at least* this high; callers comparing against it can surface a
+# "≥80 dB (clipped)" reading instead of a pegged 50.00 dB.  80 dB sits just
+# below the ~96 dB theoretical noise floor of full-scale 16-bit PCM, so a clean
+# synthetic signal no longer saturates the estimator (Phase 6 §1.4).
+_SNR_CLIP_CEILING_DB = 80.0
+_SNR_CLIP_FLOOR_DB = -20.0
+
+
 def estimate_snr_m2m4(signal: np.ndarray, constellation_type: str = "psk") -> Optional[float]:
     """M2M4 split-moment SNR estimator for complex baseband signals.
 
@@ -302,7 +311,7 @@ def estimate_snr_m2m4(signal: np.ndarray, constellation_type: str = "psk") -> Op
 
     snr_lin = s_power / n_power
     snr_db = float(10.0 * np.log10(snr_lin))
-    return float(np.clip(snr_db, -20.0, 50.0))
+    return float(np.clip(snr_db, _SNR_CLIP_FLOOR_DB, _SNR_CLIP_CEILING_DB))
 
 
 def estimate_snr(
@@ -337,7 +346,12 @@ def estimate_snr(
     Returns
     -------
     float
-        Calibrated SNR in dB, bounded in [-20.0, 50.0].
+        Calibrated SNR in dB.  Upper bound is 80.0 dB; a value at the ceiling
+        means the true SNR is *at least* that high (the two return paths and
+        M2M4 clip constant below).
+
+    The float is returned directly; callers that need to distinguish a clipped
+    reading from a real one can compare against `_SNR_CLIP_CEILING_DB`.
     """
     if len(psd) == 0:
         return 0.0
@@ -375,9 +389,9 @@ def estimate_snr(
         if snr_m2 is not None:
             # Weighted average between spectral and moment estimators
             snr_val = 0.65 * snr_spectral + 0.35 * snr_m2
-            return float(np.clip(snr_val, -20.0, 50.0))
+            return float(np.clip(snr_val, _SNR_CLIP_FLOOR_DB, _SNR_CLIP_CEILING_DB))
 
-    return float(np.clip(snr_spectral, -20.0, 50.0))
+    return float(np.clip(snr_spectral, _SNR_CLIP_FLOOR_DB, _SNR_CLIP_CEILING_DB))
 
 
 def estimate_baud_rate(
@@ -627,6 +641,7 @@ def extract_signal_parameters(
         - 'obw_95_hz': float
         - 'obw_99_hz': float
         - 'snr_db': float
+        - 'snr_clipped': bool (True when snr_db is pegged at the ~80 dB ceiling)
         - 'baud_rate': float
         - 'noise_floor': float
     """
@@ -650,6 +665,7 @@ def extract_signal_parameters(
         "obw_95_hz": float(bw_info["obw_95"]),
         "obw_99_hz": float(bw_info["obw_99"]),
         "snr_db": float(snr),
+        "snr_clipped": bool(snr >= _SNR_CLIP_CEILING_DB),
         "baud_rate": float(baud),
         "noise_floor": float(bw_info["noise_floor"]),
     }
