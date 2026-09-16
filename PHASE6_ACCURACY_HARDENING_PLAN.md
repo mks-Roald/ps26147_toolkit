@@ -25,7 +25,7 @@ needed to make "accurate" a measurable, checkable claim instead of a hope.
 | Soft-decision Viterbi "validation needed" | 🔴 Root cause now found | See §1.3 — reproduced in 10 lines of code |
 | `estimate_snr` clipped at 50 dB ceiling | ✅ Fixed | Ceiling → 80 dB; `snr_clipped` flag + `format_snr()` in UI (§1.4) |
 | `estimate_baud_rate` transition detector destroys periodicity via `abs()` | 🔴 Open | See §1.5 |
-| EVM undefined/meaningless for FSK | 🔴 Open | See §1.6 |
+| EVM undefined/meaningless for FSK | ✅ Fixed | Deviation-domain `compute_fsk_evm()` + FSK LLR branch (§1.6) |
 | Bandwidth (`bw_10db`) underestimates vs. Carson's rule | ⚠️ Needs calibration | See §1.7 |
 | No ground-truth test-signal corpus | 🔴 Missing entirely | This is the main ask — §2 |
 | No automated accuracy scoring / CI regression gate | 🔴 Missing entirely | §3 |

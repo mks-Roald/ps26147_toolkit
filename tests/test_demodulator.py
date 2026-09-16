@@ -17,6 +17,7 @@ from ps26147_toolkit.demodulator import (
     symbol_timing_recovery,
     slice_symbols_to_bits,
     compute_evm,
+    compute_fsk_evm,
     compute_soft_llr,
     demodulate_signal,
     CONSTELLATIONS,
@@ -718,6 +719,63 @@ class TestGardnerEdgeCases:
         for out in (out_pos, out_neg):
             assert len(out) < len(sig_neg)
             assert np.all(np.isfinite(out))
+
+
+class TestFskEVMAndLLR:
+    """Phase 6 §1.6: EVM and soft-LLR must be meaningful for FSK."""
+
+    def test_fsk_evm_minus_sign_is_a_real_metric(self):
+        """On a noiseless phase ramp, slice()/evm() used to read ~3 dB EVM
+        (phase rotation).  compute_fsk_evm() (deviation-domain) must report far
+        lower EVM because there is genuinely no demodulation error."""
+        n = 40
+        angles = np.linspace(0, 5, n)
+        syms = np.exp(1j * angles).astype(np.complex64)
+        evm = compute_fsk_evm(syms, "2FSK")
+        # Deviation-domain EVM on a clean ramp should be well below 0 dB
+        assert evm["evm_db"] < -10.0, f"expected low EVM, got {evm['evm_db']} dB"
+        assert evm["noise_variance"] >= 0.0
+
+    def test_fsk_evm_beats_constellation_evm_on_clean_fsk(self):
+        """The constellation-domain compute_evm() is the wrong metric for FSK —
+        it measures phase rotation.  compute_fsk_evm() must report a strictly
+        lower (more meaningful) EVM on the same {symbols, ref} input."""
+        n = 40
+        angles = np.linspace(0, 5, n)
+        syms = np.exp(1j * angles).astype(np.complex64)
+        # Reconstruct the ref the old FSK slicer produced (decision-derived ±1)
+        bits, ref = slice_symbols_to_bits(syms, "2FSK")
+        old = compute_evm(syms, ref)               # bogus constellation metric
+        new = compute_fsk_evm(syms, "2FSK")        # deviation-domain metric
+        assert new["evm_db"] < old["evm_db"], (
+            f"deviation EVM {new['evm_db']} dB should beat constellation EVM "
+            f"{old['evm_db']} dB"
+        )
+
+    def test_soft_llr_fsk_sign_matches_hard_bits(self):
+        """FSK LLR sign must follow slice_symbols_to_bits: dev>=0 -> bit 1 ->
+        negative LLR (LLR convention: positive -> 0, negative -> 1)."""
+        n = 60
+        rng = np.random.default_rng(0)
+        angles = np.linspace(-2, 2, n) + rng.normal(0, 0.05, n)
+        syms = np.exp(1j * angles).astype(np.complex64)
+        bits, _ = slice_symbols_to_bits(syms, "2FSK")
+        llr = compute_soft_llr(syms, "2FSK", noise_variance=0.1)
+        assert len(llr) == len(bits)
+        neg_on_bit1 = np.all((bits == 1) == (llr < 0))
+        assert neg_on_bit1
+
+    def test_soft_llr_fsk_length_matches_bits(self):
+        """4FSK returns 2 LLRs per deviation sample (matching 2*(n-1) hard bits)."""
+        n = 30
+        angles = np.linspace(-1.5, 1.5, n)
+        syms = np.exp(1j * angles).astype(np.complex64)
+        bits, _ = slice_symbols_to_bits(syms, "4FSK")
+        llr = compute_soft_llr(syms, "4FSK", noise_variance=0.1)
+        assert len(bits) == 2 * (n - 1)
+        assert len(llr) == len(bits)
+        # Clipped to [-20, 20]
+        assert np.all(llr >= -20.0) and np.all(llr <= 20.0)
 
 
 if __name__ == "__main__":
