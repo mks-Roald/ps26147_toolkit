@@ -153,8 +153,8 @@ def test_estimate_snr_monotonicity():
     est_high = estimate_snr(psd_high, freqs=freqs_high, center_freq=50_000.0, bandwidth=40_000.0)
 
     assert est_high > est_low, f"Expected est_high ({est_high}) > est_low ({est_low})"
-    assert -20.0 <= est_low <= 50.0
-    assert -20.0 <= est_high <= 50.0
+    assert -20.0 <= est_low <= 80.0
+    assert -20.0 <= est_high <= 80.0
 
 
 def test_estimate_snr_m2m4():
@@ -227,3 +227,43 @@ def test_extract_signal_parameters_full():
     assert abs(params["center_frequency_hz"] - fc) < 2500.0
     assert abs(params["baud_rate"] - baud) / baud < 0.035
     assert params["snr_db"] > 10.0
+
+
+def test_snr_clip_ceiling_raised_above_50():
+    """Phase 6 §1.4: the SNR clip ceiling must be strictly above 50 dB (the old
+    hardcoded value), and an estimate forced above the ceiling must bind to the
+    *new* ceiling — not be pegged at 50.
+
+    Repro: on a PSD whose in-band power is ~10^8 × the masked noise floor, the
+    spectral estimator's raw SNR is enormous.  Before the fix, estimate_snr()
+    returned exactly 50.0; now it returns the new ceiling (80.0).
+    """
+    from ps26147_toolkit.parameter_extractor import (
+        _SNR_CLIP_CEILING_DB as CEIL,
+        _SNR_CLIP_FLOOR_DB as FLOOR,
+        estimate_snr,
+    )
+    assert CEIL > 50.0, f"ceiling {CEIL} dB still at old 50 dB (§1.4 regression)"
+    assert CEIL == 80.0  # tied to 16-bit quantization noise floor (~96 dB)
+    assert FLOOR <= 0.0
+
+    n = 4096
+    freqs = np.linspace(0.0, 1.0e6, n)
+    psd = np.full(n, 1e-12)  # flat masked noise floor
+    in_band = (freqs >= 450_000.0) & (freqs <= 550_000.0)
+    psd[in_band] += 1e-2  # >>> noise -> raw SNR far above 50 dB
+
+    est = estimate_snr(psd, freqs=freqs, center_freq=500_000.0, bandwidth=100_000.0)
+    # Old code: np.clip(..., 50.0) -> 50.0.  New code must bind to CEIL.
+    assert est != 50.0, f"SNR still pegged at old 50 dB ceiling (§1.4 regression)"
+    assert est == CEIL, f"SNR {est:.2f} dB should clip to ceiling {CEIL}"
+
+
+def test_snr_clipped_flag_false_below_ceiling():
+    """snr_clipped must be False for a typical mid-range SNR reading."""
+    from ps26147_toolkit.parameter_extractor import _SNR_CLIP_CEILING_DB
+    fs = 1_000_000.0
+    sig = generate_synthetic_psk(fs=fs, fc=50_000.0, baud_rate=25_000.0, snr_db=15.0, num_symbols=1500)
+    params = extract_signal_parameters(sig, fs=fs)
+    assert params["snr_db"] < _SNR_CLIP_CEILING_DB
+    assert params.get("snr_clipped") is False
