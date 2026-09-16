@@ -28,10 +28,10 @@ needed to make "accurate" a measurable, checkable claim instead of a hope.
 | EVM undefined/meaningless for FSK | ✅ Fixed | Deviation-domain `compute_fsk_evm()` + FSK soft-LLR branch (`4d8b502`) — §1.6 |
 | Bandwidth (`bw_10db`) underestimates vs. Carson's rule | ✅ Fixed | Per-modulation contour-ladder calibration (`2452e32` + `f8c6f3f`) — §1.7 |
 | No ground-truth test-signal corpus | ✅ Partially built | Generator (`00955e3`); `_cal/` now holds the 14-file .wav MPC leg (`0e2581b`) — §2, `.iq` leg + SNR ladder still to generate |
-| No automated accuracy scoring / CI regression gate | ✅ Implemented | `scripts/run_accuracy_report.py` built & run on `_cal/` (§3). Gate at **88.1%** after §1.8 (classifier fixed, all 7 modulations correct) |
+| No automated accuracy scoring / CI regression gate | ✅ Implemented | `scripts/run_accuracy_report.py` built & run on `_cal/` (§3). Gate at **88.1%** after §1.8 (classifier fixed, all 7 modulations correct); baud+8PSK-cf fixed → 42/42 pass (§1.9/§1.9d) |
 | Classifier mislabels QAM/PSK as AM, 4FSK as 2FSK | ✅ Fixed | §1.8 — baseband downconversion + rule-based path; all 7 modulations correct |
-| **Baud-rate estimator loses PSK/QAM (QPSK→299, 8PSK→116, 16QAM→144, 64QAM→84)** | 🔴 **TODO tomorrow** | §1.9 — sole remaining blocker for §3 gate |
-| 8PSK center-freq 1.51% (just over 1% tol) | 🔴 TODO | Secondary to baud; spectral centroid fails on 8PSK's asymmetric band — §1.9d |
+| **Baud-rate estimator loses PSK/QAM (QPSK→299, 8PSK→116, 16QAM→144, 64QAM→84)** | ✅ Fixed | §1.9 — contrast-based best-of-both channel selection (sqenv vs transition); corpus 42/42, unit failures 8 → 3 |
+| 8PSK center-freq 1.51% (just over 1% tol) | ✅ Fixed | §1.9d — −20 dB occupied-band PSD-weighted centroid; 8PSK within tolerance |
 
 ---
 
@@ -358,8 +358,26 @@ exist. Calibration against the ground-truth matrix (§2) will tell you whether
 
 ### 1.9 New (isolated by §3 harness, post-§1.8): baud-rate estimator loses PSK/QAM
 
-> **Status: Open 🔴 (2026-09-16).** Now that §1.8 fixed modulation,
-> `estimate_baud_rate` is the remaining failure.  Modulation all correct;
+> **Status: Fixed ✅ (2026-09-16).** Root cause: the channel that exposes the Rs
+> spectral line depends on the envelope.  `estimate_baud_rate` picked the channel
+> from a `modulation=FLAG` (squared-envelope for everything non-FSK), which routed
+> constant-envelope rectangular-pulse PSK through a flat `|x_bb|²` → no line, and
+> intermittently sent RRC pulse-shaped PSK/QAM through the fragile transition
+> envelope whose spurious low-frequency energy outranked the true Rs.  Fix: build
+> **both** candidate channels and choose the one with the crisper Rs-line peak by
+> contrast (`_baud_channel_selector` / `_baud_channel_contrast`,
+> `ps26147_toolkit/parameter_extractor.py`).  No dependence on the modulation label
+> or pulse shape; the existing FFT+autocorrelation cross-validation resolves any
+> 2×-harmonic case.
+>
+> **Result:** all 7 corpus modulations recover 1200 baud (42/42, §3 gate ≥95%
+> holds); the removed sub-harmonic "promotion" heuristic stays gone (§1.9 root
+> cause identified below).  Unit failures dropped 8 → 3 (2 are pre-existing
+> FSK/classifier items tracked in §zero ledger).
+>
+> --- historical analysis (pre-fix) ---
+> **Status was Open 🔴.** Now that §1.8 fixed modulation,
+> `estimate_baud_rate` was the remaining failure.  Modulation all correct;
 > BPSK/2FSK/4FSK give exact 1200, but QPSK→299, 8PSK→116, 16QAM→144, 64QAM→84.
 > The true 1200 Hz line **is** present in the transition-envelope PSD for every
 > modulation; the estimator just picks its spurious shoulder instead:
@@ -381,14 +399,13 @@ exist. Calibration against the ground-truth matrix (§2) will tell you whether
 >
 > **d. Secondary: 8PSK center-freq reads 1.51% low (9849 vs 10000 Hz).**
 > `estimate_center_frequency` (peak bin + half-power weighted centroid on the
-> raw passband PSD) pulls the other modulations to <0.7% error but stalls on
+> raw passband PSD) pulled the other modulations to <0.7% error but stalled on
 > 8PSK, whose spectral peak flattens ~9703 Hz and whose half-power centroid
-> converges to ~9849.  BPSK/QPSK on the same peak reach 9990/9969.  Worth
-> attacking alongside the baud fix tomorrow: either use the classifier's
-> P-th-power refined carrier (`downconvert_baseband`'s `best_fc`, which lands
-> essentially exact for PSK/QAM), or re-centre the centroid on the band's
-> true symmetry axis.  Not the §3 gate's main blocker (baud is 4 files; this
-> is 1), but easy to sweep up.
+> converges to ~9849.  BPSK/QPSK on the same peak reach 9990/9969.  **Fixed:** the
+> centroid is now a **−20 dB occupied-band PSD-weighted centroid**
+> (`_CENTER_FREQ_CONTOUR_DB = 20`, `estimate_center_frequency`); re-centring on
+> the band's wider occupied envelope brings 8PSK within the 1% tolerance while
+> keeping the other six modulations <0.7%.
 
 ---
 

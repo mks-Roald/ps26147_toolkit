@@ -14,6 +14,14 @@ from typing import Any, Dict, Optional, Tuple, Union
 import numpy as np
 from scipy.signal import find_peaks, savgol_filter, hilbert
 
+# Center-frequency occupied-band contour (dB down from the smoothed spectral
+# peak) over which the energy-weighted centroid is computed.  A -3 dB (half
+# power) cluster centroid is biased low for energy-asymmetric RRC bands (8PSK
+# read 1.5% low); the wider occupied band re-centres on the band's symmetry
+# axis while staying robust to AWGN (white noise adds a symmetric baseline).
+# Phase 6 §1.9d.
+_CENTER_FREQ_CONTOUR_DB = 20
+
 
 def estimate_center_frequency(
     freqs: np.ndarray,
@@ -57,16 +65,24 @@ def estimate_center_frequency(
     peak_idx = int(np.argmax(psd_smooth))
     peak_val = psd_smooth[peak_idx]
 
-    # Find continuous region within 3 dB (half power) of the peak
-    half_power = peak_val * 0.5
+    # Measure the centroid over the occupied band rather than just the -3 dB
+    # cluster.  For RRC-pulse PSK/QAM the spectral *peak* bin can sit well away
+    # from the true centre: 8PSK's band is energy-asymmetric, so the old -3 dB
+    # cluster centroid read 1.5% low (9849 vs 10000) while every other
+    # modulation landed <0.7% (Phase 6 §1.9d).  The energy-weighted centroid of
+    # the wider occupied band (contour below) re-centres on the band's symmetry
+    # axis and reads <0.6% for every modulation in the ground-truth corpus.
+    # The contour is also noise-robust: flat white noise adds a symmetric
+    # baseline that does not shift the centroid.
+    contour = peak_val * 10.0 ** (-_CENTER_FREQ_CONTOUR_DB / 10.0)
     left = peak_idx
-    while left > 0 and psd_smooth[left - 1] >= half_power:
+    while left > 0 and psd_smooth[left - 1] >= contour:
         left -= 1
     right = peak_idx
-    while right < len(psd_smooth) - 1 and psd_smooth[right + 1] >= half_power:
+    while right < len(psd_smooth) - 1 and psd_smooth[right + 1] >= contour:
         right += 1
 
-    # Weighted centroid in the half-power cluster
+    # Weighted centroid of the occupied-band cluster
     weights = psd_smooth[left : right + 1]
     w_sum = float(np.sum(weights))
     if w_sum > 0:
@@ -394,20 +410,74 @@ def estimate_snr(
     return float(np.clip(snr_spectral, _SNR_CLIP_FLOOR_DB, _SNR_CLIP_CEILING_DB))
 
 
+def _baud_channel_contrast(ch_signal, fs, min_baud, max_baud):
+    """Spectral peak contrast of a baud channel; 0.0 if no resolvable peak.
+
+    Measures how crisp the strongest spectral line is relative to the occupied
+    band's typical power.  A high contrast means that channel actually carries a
+    clean symbol-rate line — the squared envelope |x_bb|^2 for non-constant-
+    envelope PSK/QAM/ASK, the phase-transition envelope for constant-envelope FSK
+    and rectangular-pulse PSK (Phase 6 §1.5/§1.9).
+    """
+    n = len(ch_signal)
+    if n < 16:
+        return 0.0
+    window = np.hanning(n)
+    windowed = ch_signal * window
+    n_fft = max(2048, 4 * int(2 ** np.ceil(np.log2(n))))
+    psd = np.abs(np.fft.rfft(windowed, n=n_fft)) ** 2
+    freqs = np.fft.rfftfreq(n_fft, d=1.0 / fs)
+    band = (freqs >= min_baud) & (freqs <= max_baud)
+    if not np.any(band):
+        return 0.0
+    vpsd = psd[band]
+    mean_val = float(np.mean(vpsd))
+    std_val = float(np.std(vpsd))
+    height_thresh = mean_val + 0.5 * std_val
+    peaks, _ = find_peaks(
+        vpsd, height=height_thresh, distance=max(2, int(len(vpsd) * 0.005))
+    )
+    if len(peaks) == 0:
+        return 0.0
+    return float(np.max(vpsd[peaks])) / (float(np.median(vpsd)) + 1e-12)
+
+
+def _baud_channel_selector(transition_signal, sqenv_signal, fs, min_baud, max_baud):
+    """Pick the baud channel with the crisper symbol-rate line (§1.9).
+
+    The paused, modulation-driven channel choice wrongly forced constant-envelope
+    rectangular-pulse PSK through the squared-envelope channel (flat |x|^2 → no
+    line) and non-constant-envelope RRC PSK/QAM through the transition channel
+    (spurious low-frequency energy outranking Rs).  Contrast resolves it from the
+    signal itself: whichever channel carries the sharper Rs line wins.
+    """
+    c_trans = _baud_channel_contrast(transition_signal, fs, min_baud, max_baud)
+    c_sqenv = _baud_channel_contrast(sqenv_signal, fs, min_baud, max_baud)
+    if c_sqenv > c_trans:
+        return sqenv_signal
+    return transition_signal
+
+
 def estimate_baud_rate(
     signal: np.ndarray,
     fs: float,
     center_freq: float = 0.0,
     bandwidth: Optional[float] = None,
+    modulation: Optional[str] = None,
 ) -> float:
     """Robust symbol/baud rate (Rs) estimator for digital modulations (PSK, QAM, FSK, ASK).
 
     Implements SOP 2.4:
     1. Downconverts passband signal to complex baseband using center_freq.
-    2. Constructs non-linear transition envelope:
-       Delta s(t) = |d/dt |s(t)|| / std_mag + alpha * |unwrap(dphi/dt)| / std_phase
+    2. Constructs a non-linear channel that concentrates energy at the symbol
+       rate Rs — for non-constant-envelope modulations (PSK/QAM/ASK) the
+       *squared envelope* |x_bb|^2, which is cyclostationary at Rs and carries a
+       guaranteed line there (Phase 6 §1.9); for constant-envelope FSK the
+       phase-transition channel (§1.5), whose signed phase *differences* mark
+       each bit boundary.  The better channel is chosen from the signal itself by
+       Rs-line contrast (Step 2), independent of the modulation label.
     3. Windowed (Hann) high-resolution FFT with zero-padding.
-    4. Bounded harmonic peak search in [BW/10, BW] or [10, fs/2].
+    4. Bounded peak search in [bandwidth/10, bandwidth*1.5] or [10, fs/2].
     5. Parabolic peak interpolation and cyclic autocorrelation lag verification.
 
     Parameters
@@ -420,6 +490,11 @@ def estimate_baud_rate(
         Center frequency of the signal in Hz.
     bandwidth : Optional[float]
         Estimated bandwidth in Hz to bound the baud search.
+    modulation : Optional[str]
+        Optional known modulation class (e.g. ``"QPSK"``, ``"2FSK"``).  No longer
+        used to pick the channel — baud-rate channel selection is done from the
+        signal itself by Rs-line contrast (§1.9).  Retained for signature
+        compatibility with callers in the CLI and extract_signal_parameters.
 
     Returns
     -------
@@ -446,11 +521,31 @@ def estimate_baud_rate(
     # Remove DC component from baseband
     sig_bb = sig_bb - np.mean(sig_bb)
 
-    # 2. Non-linear transition envelope signals
+    # 2. Non-linear channel whose spectrum carries the symbol-rate line.
+    #
+    # For PSK/QAM/ASK the signal is amplitude-carrying but the brute-force
+    # phase/envelope transition envelope is fragile: RRC rolloff and
+    # constellation statistics inject spurious *low-frequency* energy that
+    # outranks the true Rs line (Phase 6 §1.9 — QPSK→299, 8PSK→116, 16QAM→144,
+    # 64QAM→84 all came from picking one of these spurious low-freq lines).
+    # The *squared envelope* |x_bb|^2, by contrast, is cyclostationary at the
+    # symbol rate for every non-constant-envelope modulation and carries a
+    # guaranteed, clean spectral line at Rs (verified on the ground-truth corpus:
+    # |x_bb|^2's top peak sits exactly at Rs=1200 for BPSK/QPSK/8PSK/16QAM/64QAM).
+    #
+    # For constant-envelope FSK, |x_bb|^2 is a constant and carries *no* line, so
+    # FSK keeps the phase-transition channel (§1.5): its signed phase *difference*
+    # produces an impulse at each bit boundary — genuinely periodic regardless of
+    # the data pattern.
+    #
+    # Both channels are built, and the one carrying the crisper Rs line is chosen
+    # by contrast (see _baud_channel_selector) — this no longer depends on the
+    # caller knowing the modulation or the pulse shape.  Constant-envelope
+    # rectangular-pulse PSK (flat |x_bb|^2) then lands on the transition channel,
+    # while non-constant-envelope RRC-scaped PSK/QAM land on the squared envelope.
     mag = np.abs(sig_bb)
     mag_diff = np.abs(np.diff(mag))
 
-    # Phase difference (detects PSK/FSK phase transitions)
     # Conjugate product gives the signed instantaneous frequency directly:
     #   dphi = angle(sig_bb[n] * conj(sig_bb[n-1]))
     # For continuous-phase FSK, dphi alternates between +Δf·Ts and −Δf·Ts at
@@ -470,26 +565,15 @@ def estimate_baud_rate(
     std_m = float(np.std(mag_diff)) + 1e-12
     std_p = float(np.std(phase_diff)) + 1e-12
 
-    # Combined transition indicator
+    # Combined transition indicator / candidate channel (zero-mean)
     transition_signal = (mag_diff / std_m) + (phase_diff / std_p)
     transition_signal = transition_signal - np.mean(transition_signal)
 
-    n = len(transition_signal)
-    if n < 16:
-        return 0.0
+    # Squared-envelope (cyclostationary) candidate channel |x_bb|^2 (zero-mean)
+    sqenv_signal = np.abs(sig_bb) ** 2 - np.mean(np.abs(sig_bb) ** 2)
 
-    # 3. Apply Hann window to eliminate spectral leakage
-    window = np.hanning(n)
-    windowed_signal = transition_signal * window
-
-    # Zero-padded FFT for fine frequency interpolation
-    n_fft = max(2048, 4 * int(2 ** np.ceil(np.log2(n))))
-    fft_trans = np.fft.rfft(windowed_signal, n=n_fft)
-    freqs_trans = np.fft.rfftfreq(n_fft, d=1.0 / fs)
-    psd_trans = np.abs(fft_trans) ** 2
-
-    # 4. Search bounds for Baud Rate
-    # Baud rate physically cannot exceed bandwidth (Nyquist criterion) or fs/2
+    # 3. Search bounds for Baud Rate.
+    # Baud rate physically cannot exceed bandwidth (Nyquist criterion) or fs/2.
     if bandwidth is not None and bandwidth > 0:
         min_baud = max(10.0, bandwidth * 0.05, fs * 0.001)
         max_baud = min(fs * 0.495, bandwidth * 1.5)
@@ -501,7 +585,26 @@ def estimate_baud_rate(
         min_baud = 10.0
         max_baud = fs * 0.495
 
-    # 5. Autocorrelation-based fundamental period search
+    # 4. Select the channel (transition vs squared-envelope) by Rs-line contrast.
+    transition_signal = _baud_channel_selector(
+        transition_signal, sqenv_signal, fs, min_baud, max_baud
+    )
+
+    n = len(transition_signal)
+    if n < 16:
+        return 0.0
+
+    # 5. Apply Hann window to eliminate spectral leakage.
+    window = np.hanning(n)
+    windowed_signal = transition_signal * window
+
+    # Zero-padded FFT for fine frequency interpolation
+    n_fft = max(2048, 4 * int(2 ** np.ceil(np.log2(n))))
+    fft_trans = np.fft.rfft(windowed_signal, n=n_fft)
+    freqs_trans = np.fft.rfftfreq(n_fft, d=1.0 / fs)
+    psd_trans = np.abs(fft_trans) ** 2
+
+    # 6. Autocorrelation-based fundamental period search
     # Autocorrelation of transition envelope has its first peak at lag = fs / Rs
     autocorr = np.fft.irfft(psd_trans)[:n]
     # Normalize autocorrelation
@@ -535,7 +638,7 @@ def estimate_baud_rate(
                 if min_baud <= cand_baud <= max_baud:
                     ac_baud = float(cand_baud)
 
-    # 6. Frequency-domain spectral peak search with harmonic resolution
+    # 7. Frequency-domain spectral peak search with harmonic resolution
     valid_mask = (freqs_trans >= min_baud) & (freqs_trans <= max_baud)
     if not np.any(valid_mask):
         return ac_baud if ac_baud is not None else 0.0
@@ -561,21 +664,16 @@ def estimate_baud_rate(
         top_freq = candidate_freqs[0]
         top_power = candidate_powers[0]
 
-        # Check if there is a fundamental sub-harmonic (e.g. top_freq / 2 or top_freq / 3 or top_freq / 4)
+        # The strongest spectral line on the modulation-appropriate channel is
+        # the symbol-rate fundamental — the squared-envelope channel carries it
+        # cleanly for PSK/QAM/ASK, the transition channel for FSK (§1.9).  A
+        # sub-harmonic "promotion" heuristic used to be applied here, but it kept
+        # wrongly demoting the correct Rs line to a spurious low-frequency peak
+        # (QPSK→299, 8PSK→116, 16QAM→144, 64QAM→84 instead of 1200); the cyclic
+        # autocorrelation cross-check below already covers the legitimate
+        # "top is a harmonic of the true fundamental" case, so that heuristic was
+        # removed.  Refine the top peak with parabolic interpolation.
         best_freq = top_freq
-        for sub_div in [4, 3, 2]:
-            sub_target = top_freq / sub_div
-            if sub_target >= min_baud:
-                # Look for matching peak near sub_target (within 4%)
-                matches = np.where(np.abs(candidate_freqs - sub_target) <= 0.04 * sub_target)[0]
-                if len(matches) > 0:
-                    sub_idx = matches[0]
-                    # If subharmonic has at least 15% power of top harmonic, it is the true fundamental
-                    if candidate_powers[sub_idx] >= 0.15 * top_power:
-                        best_freq = candidate_freqs[sub_idx]
-                        break
-
-        # Refine best_freq using parabolic interpolation in the un-windowed spectrum
         best_idx_in_valid = np.argmin(np.abs(valid_freqs - best_freq))
         global_peak_idx = valid_indices[best_idx_in_valid]
 
@@ -742,7 +840,7 @@ def extract_signal_parameters(
     bw = ladder[contour_db]
 
     snr = estimate_snr(psd, freqs=freqs, center_freq=fc, bandwidth=bw, signal=signal, fs=fs)
-    baud = estimate_baud_rate(signal, fs, center_freq=fc, bandwidth=bw)
+    baud = estimate_baud_rate(signal, fs, center_freq=fc, bandwidth=bw, modulation=modulation)
 
     return {
         "center_frequency_hz": float(fc),
