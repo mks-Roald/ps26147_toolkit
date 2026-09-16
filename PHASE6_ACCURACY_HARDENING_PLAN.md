@@ -22,7 +22,7 @@ needed to make "accurate" a measurable, checkable claim instead of a hope.
 |---|---|---|
 | `auto_discover_preamble` missing-key crash | ✅ Fixed locally (not pushed) | User-confirmed `.get()` fix |
 | `auto_discover_preamble` overwrites `discovered_preamble` in a loop | 🔴 Open | Still present, `correlator.py` — see §1.2 |
-| Soft-decision Viterbi "validation needed" | 🔴 Root cause now found | See §1.3 — reproduced in 10 lines of code |
+| Soft-decision Viterbi "validation needed" | ✅ Fixed & regression-gated | §1.3 root-caused; `test_soft_decision_viterbi_awgn_ber_curve` now exercises a real BER-vs-SNR curve (see §1.3/§1.3.1) |
 | `estimate_snr` clipped at 50 dB ceiling | ✅ Fixed | Ceiling → 80 dB; `snr_clipped` flag + `format_snr()` in UI (§1.4) |
 | `estimate_baud_rate` transition detector destroys periodicity via `abs()` | 🔴 Open | See §1.5 |
 | EVM undefined/meaningless for FSK | ✅ Fixed | Deviation-domain `compute_fsk_evm()` + FSK LLR branch (§1.6) |
@@ -75,6 +75,9 @@ keep the best-scoring one, not the longest one that fits). Not yet applied.
 Low effort, real accuracy impact on multi-frame captures — pull this into Phase 6.
 
 ### 1.3 Soft-decision Viterbi: root cause found and reproduced (closes PHASE5 open item)
+
+> **Status: Implemented ✅ (2026-09-16).** Root cause confirmed, no decoder code
+> change needed, and a committed test now regression-gates it. See §1.3.1.
 
 PHASE5_SUMMARY.md flagged: *"Both hard-decision and soft-decision decoders
 exhibit poor performance with realistic AWGN noise... ~96% BER at Eb/N0=8dB...
@@ -146,18 +149,52 @@ c) **The FSK LLR fallback is a separate, deeper bug — see §1.6.** Fixing (a) 
 
 #### 1.3.1 Required new test (committed, not exploratory)
 
-Add `test_soft_decision_viterbi_awgn_ber_curve` to `tests/test_fec.py`:
+> **Status: Committed ✅ (`600a40e`).** `test_soft_decision_viterbi_awgn_ber_curve`
+> now exists in `tests/test_fec.py` and produces a real BER-vs-SNR curve.
+
+Committed requirements:
 - Sweep Eb/N0 ∈ {2, 4, 6, 8, 10} dB.
 - At each point: encode → BPSK map → AWGN → hard-decode AND soft-decode →
   compute BER for both.
 - Assert **soft BER ≤ hard BER at every point** (soft decision must never be
   worse than hard — that's the entire point of carrying LLRs through).
-- Assert both curves fall below a known reference (e.g. within 1 dB of the
-  textbook K=7 rate-1/2 hard-decision BER curve — tabulated values are widely
-  available, or generate a reference with `commpy`/`sionna` per
-  `ps26147_toolkit_review_and_fixes.md` §1.6's suggestion for LDPC).
-- This single test, once it exists, is what would have caught the original bug
-  in code review instead of in a hackathon judging round.
+- Guard against a vacuous sweep: the lowest point must be in the error regime
+  (`hard BER > 0`), so a noise-normalization regression can't silently pass.
+- At the highest point, assert soft BER `< 0.02`.
+- This single test is exactly what would have caught the original bug in code
+  review instead of in a hackathon judging round.
+
+**Two additional defects found while making this test real (both fixed in the
+same commit):**
+
+1. **The test's noise normalization was wrong by +3 dB.** The old
+   `noise_std = sqrt(1 / (2 * snr_lin))` is not the correct relation for BPSK
+   rate-1/2. With ±1 symbols, `Eb = Es/r = 2` and `N0 = 2*sigma²`, so
+   `Eb/N0 = Es/(r·2·sigma²) = 1/sigma²`, i.e. `sigma² = 1/snr_lin`. The extra
+   factor of 2 in the denominator *halved* the injected noise relative to the
+   label, shifting the whole sweep +3 dB — which landed every point in the
+   error-free regime (all BERs `0.0000`). The test therefore **passed while
+   proving nothing** about soft-vs-hard gain; it wasn't exercising §1.3's bug
+   at all because it never entered the waterfall. Fixed, and the sweep now
+   actually shows the gain:
+
+   | Eb/N0 (dB) | hard BER | soft BER |
+   |---|---|---|
+   | 2 | 0.141 | 0.000 |
+   | 4 | 0.0045 | 0.000 |
+   | 6/8/10 | 0.000 | 0.000 |
+
+2. **A no-op assertion** masked the real one: `assert ber_soft <= ber_soft + 0.001`
+   compared a value to itself (always true). Corrected to the intended
+   `ber_soft <= ber_hard + 0.001`. (The cross-curve `bs <= bh + 0.005` check at the
+   end was already correct.)
+
+**Still outstanding (optional, note in review):** the "within 1 dB of the
+textbook K=7 rate-1/2 hard-decision BER curve" comparison — generate a reference
+with `commpy`/`sionna` per `ps26147_toolkit_review_and_fixes.md` §1.6's LDPC
+suggestion, or tabulate textbook values. The current assertions (soft ≤ hard,
+hard > 0 at the low end) already prevent the original class of regression
+silently; the absolute reference would additionally pin the *shape* of the curve.
 
 ### 1.4 `estimate_snr` clips at a hardcoded 50 dB ceiling
 
@@ -400,13 +437,20 @@ recover the exact payload down to ~4–5 dB SNR; below that, failure is
 
 1. **Push the `.get()` fix** (§1.1) — already done, just ship it. Add the
    defensive early-return dict shape while you're in that function.
-2. **Fix the Viterbi LLR sign bug** (§1.3) — highest ratio of impact to effort
-   of anything in this document; it's a one-line negation plus one new
-   committed test with a real BER assertion.
-3. **Wire soft-decision Viterbi into `decode_fec()`/`app.py`** — currently
-   `decode_fec()`'s dispatcher never sets `soft_decision=True` and `app.py`
-   never passes `demod_data["llr"]` through; the infrastructure from Phase 5
-   is unreachable in production regardless of #2.
+2. **Fix the Viterbi LLR sign bug** (§1.3) — ✅ **done.** No decoder change was
+   needed (the sign bug was in the test/LLR-generation convention, not the
+   trellis); `test_soft_decision_viterbi_awgn_ber_curve` is committed with a
+   real BER assertion and a vacuous-sweep guard (§1.3.1).
+3. **Wire soft-decision Viterbi into `decode_fec()`/`app.py`** — partially
+   verified (note: the plan's original claim here was already stale on the
+   decoder side). `decode_fec()` **does** forward `llr=` to
+   `viterbi_decode`/`concatenated_decode`, which select the soft path
+   automatically when LLRs are present — so soft-decision is reachable at the
+   `decode_fec()` boundary. The remaining open check is the **`app.py`** side:
+   confirm the UI actually passes `demod_data["llr"]` into `decode_fec()`
+   (and that `decode_fec()`'s Viterbi branch receives it — note it does *not*
+   currently pass the `soft_decision` flag explicitly, it relies on the `llr`
+   auto-detect). Verify with a known-SNR file from the §2 corpus once it exists.
 4. **Build the corpus generator** (§2.3) and generate the Minimum Viable
    Corpus (§2.2) — do this before chasing any more individual metric bugs,
    because half of §1's remaining items (SNR ceiling, bandwidth
