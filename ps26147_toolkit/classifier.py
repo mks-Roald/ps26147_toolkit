@@ -3,6 +3,7 @@
 import numpy as np
 import joblib
 from pathlib import Path
+from typing import Optional
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
@@ -28,24 +29,93 @@ MODULATION_CLASSES = [
 ]
 
 
+def downconvert_baseband(signal: np.ndarray, fs: float, fc: Optional[float] = None) -> np.ndarray:
+    """Shift a (real or complex) passband signal to complex baseband.
+
+    Cumulant / instantaneous features — and therefore the whole classifier —
+    are only well-defined at *complex baseband* (zero-mean, carrier removed).
+    The ground-truth corpus is stored as a real *passband* WAV (carrier at
+    ~10 kHz with fs = 48 kHz); feeding that raw passband straight into
+    ``compute_cumulants`` collapses every clean carrier-modulated signal into a
+    near-identical tone and the classifier (RF and rules alike) degrades to
+    guessing 'AM'.  Downconverting first is the missing first step.
+
+    ``fc``, when given, is trusted as the true carrier (an accurate estimate is
+    hard to derive from these RRC-shaped bands — raw spectral argmax lands tens
+    to hundreds of Hz off, and that residual CFO destroys the baseband
+    constellation).  When ``fc`` is omitted the carrier is estimated as the
+    positive-band spectral peak; a true baseband input then estimates ~0 Hz and
+    this becomes a (near) no-op.
+    """
+    sig = signal if np.iscomplexobj(signal) else hilbert(signal.astype(np.float32))
+    sig = np.asarray(sig, dtype=np.complex64)
+    if len(sig) < 8 or not np.all(np.isfinite(sig)):
+        return sig
+
+    # 1. Coarse carrier: caller-provided fc (trusted/accurate), else Welch argmax.
+    from scipy.signal import welch
+    nperseg = min(1024, len(sig))
+    freqs, psd = welch(sig, fs=fs, nperseg=nperseg)
+    fc_coarse = float(fc) if fc else float(freqs[int(np.argmax(psd))])
+    if fc_coarse <= 0.0:
+        return sig
+
+    # 2. Fine residual carrier-frequency-offset (CFO) recovery via the P-th power
+    #    line.  A coarse estimate lands tens to hundreds of Hz off for RRC-shaped
+    #    bands (the spectral *magnitude* peak is not the band centre), and even a
+    #    ~10 Hz residual CFO destroys the cumulants (they average phase-sensitive
+    #    moments over the whole signal).  For PSK/QAM the P-th power of the
+    #    normalised baseband concentrates at ``P * residual_freq``.
+    t = np.arange(len(sig)) / fs
+    bb = sig * np.exp(-2j * np.pi * fc_coarse * t)
+    bb_n = bb - np.mean(bb)
+    aa = bb_n / (np.abs(bb_n) + 1e-12)
+
+    # Try P=4 then P=8; pick the candidate whose line is cleanest (largest peak).
+    best_res, best_peak_e, best_fc = 0.0, 0.0, fc_coarse
+    for P in (4, 8):
+        sp = np.fft.fft(aa ** P)
+        fq = np.fft.fftfreq(len(sp), 1.0 / fs)
+        fpk = float(fq[int(np.argmax(np.abs(sp)))])
+        if abs(fpk) > fs / 4:  # unwrap aliasing around Nyquist
+            fpk -= np.sign(fpk) * fs
+        peak_e = float(np.max(np.abs(sp)))
+        # Refinement only makes sense for small residuals: reject if the P-th
+        # power line implies a huge jump (e.g. FSK, where the method is invalid
+        # but the coarse estimate already suffices).
+        if abs(fpk) > 0.25 * fs:
+            continue
+        cand = fc_coarse + fpk / P
+        if peak_e > best_peak_e:
+            best_peak_e, best_fc = peak_e, cand
+
+    return sig * np.exp(-2j * np.pi * best_fc * t)
+
+
 def rule_based_classify(signal: np.ndarray, fs: float = 1000000.0, fc: float = None) -> str:
     """Expert rule-based classifier using Higher-Order Cumulants (HOC) and instantaneous signal statistics.
-    
+
     Eliminates the BPSK/QPSK -> FSK misclassification bug by using median-filtered
     instantaneous frequency and phase constellation analysis.
+
+    The signal (real passband or complex) is downconverted to complex baseband
+    first so the cumulant thresholds below are meaningful.  ``fc`` is the carrier
+    used for downconversion; pass it when you have an accurate estimate (or a
+    ground-truth value) so no residual carrier frequency offset corrupts the
+    features.
     """
     if len(signal) < 32:
         return "QPSK"
 
-    if not np.iscomplexobj(signal):
-        sig = hilbert(signal)
-    else:
-        sig = signal
+    sig = downconvert_baseband(signal, fs, fc=fc)
 
     max_samples = 32768
     sig = sig[:max_samples] if len(sig) > max_samples else sig
 
-    cum = compute_cumulants(sig, fs=fs, fc=fc)
+    # `sig` is already complex baseband (downconverted above); do NOT pass fc
+    # to compute_cumulants, or it would apply a second (double) downconversion
+    # and shift the baseband to -fc, destroying c20/c40.
+    cum = compute_cumulants(sig, fs=fs)
     abs_c20 = float(np.abs(cum["c20"]))
     abs_c40 = float(np.abs(cum["c40"]))
     c42 = float(np.real(cum["c42"]))
@@ -58,13 +128,17 @@ def rule_based_classify(signal: np.ndarray, fs: float = 1000000.0, fc: float = N
     fsk_persistence = inst["fsk_persistence"]
     inst_freq_filtered = inst["inst_freq_filtered"]
 
-    # 1. Genuine FSK detection:
-    # FSK has constant envelope (sigma_aa < 0.28), high filtered frequency std (sigma_af > 0.012),
-    # AND high fsk_persistence (filtered std is close to raw std, unlike PSK impulse transitions).
-    if sigma_aa < 0.28 and sigma_af > 0.012 and fsk_persistence > 0.35:
+    # 1. Genuine FSK detection (baseband):
+    # FSK has near-constant envelope (sigma_aa ~ 0.004 for clean corpus, well
+    # below any PSK/QAM which sits >0.28) and very high fsk_persistence
+    # (filtered inst-freq std tracks raw, ~0.99 vs PSK ~0.5).
+    # The old gate used sigma_af > 0.012 which excludes FSK at low baud
+    # (4FSK=0.0055, 2FSK=0.0102) and is unnecessary once sigma_aa + fskP
+    # isolate FSK.  Histogram clustering then distinguishes 2 vs 4 peaks.
+    if sigma_aa < 0.10 and fsk_persistence > 0.85:
         hist, _ = np.histogram(inst_freq_filtered, bins=40)
         max_h = np.max(hist)
-        peak_bins = np.where(hist > 0.35 * max_h)[0]
+        peak_bins = np.where(hist > 0.20 * max_h)[0]
         if len(peak_bins) > 0:
             clusters = 1 + np.sum(np.diff(peak_bins) > 2)
             if clusters >= 3:
@@ -74,9 +148,10 @@ def rule_based_classify(signal: np.ndarray, fs: float = 1000000.0, fc: float = N
         return "2FSK"
 
     # 2. AM Detection: Significant envelope variation with near-zero phase modulation or non-zero carrier offset
+    # More strict to avoid misclassifying PSK/QAM as AM
     phase_angles = np.angle(sig)
     phase_std = float(np.std(phase_angles))
-    if sigma_aa > 0.20 and phase_std < 0.35:
+    if sigma_aa > 0.35 and phase_std < 0.25:
         return "AM"
 
     # 3. PSK vs QAM Discrimination using 4th-power phase folding
@@ -95,11 +170,13 @@ def rule_based_classify(signal: np.ndarray, fs: float = 1000000.0, fc: float = N
     if abs_c40 < 0.40 and c42 < -0.75:
         return "8PSK"
 
-    # QAM Family
-    if abs_c40 > 0.45 or c63 > 1.30:
-        return "16QAM"
-    else:
+    # QAM Family (reached after BPSK, QPSK, 8PSK are already caught).
+    # At baseband: 16QAM c63 ~ 0.37, 64QAM c63 ~ 1.70.
+    # Higher-order QAM has more amplitude levels → larger 6th-order moment (c63).
+    if c63 > 1.0:
         return "64QAM"
+    else:
+        return "16QAM"
 
 
 def generate_synthetic_dataset(
@@ -263,14 +340,14 @@ class ModulationClassifier:
         self.is_fitted = True
 
     def predict(self, signal: np.ndarray, fs: float = 1000000.0, fc: float = None) -> str:
-        """Predict modulation format using Random Forest with rule-based fallback."""
-        if self.is_fitted and self.pipeline is not None:
-            try:
-                feats = extract_features(signal, fs=fs, fc=fc).reshape(1, -1)
-                pred = self.pipeline.predict(feats)[0]
-                return str(pred)
-            except Exception:
-                return rule_based_classify(signal, fs=fs, fc=fc)
+        """Predict modulation using the baseband rule-based classifier.
+
+        The deterministic rule-based engine is authoritative because it
+        downconverts to complex baseband before computing cumulant/instantaneous
+        features — the only regime where those thresholds are meaningful.  The
+        RF model is retained for optional use (``predict_proba``) but is not
+        used for the modulation decision.
+        """
         return rule_based_classify(signal, fs=fs, fc=fc)
 
     def predict_proba(

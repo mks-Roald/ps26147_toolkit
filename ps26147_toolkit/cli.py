@@ -33,9 +33,15 @@ def process_file(
         raise ValueError("Unsupported file type. Use .iq or .wav")
 
     # Classify modulation first so the extractor can use the calibrated
-    # per-modulation occupied-bandwidth contour (Phase 6 §1.7).
+    # per-modulation occupied-bandwidth contour (Phase 6 §1.7).  The classifier
+    # downconverts the passband signal to complex baseband before featurising
+    # (Phase 6 §1.8); give it an accurate carrier so no residual frequency
+    # offset corrupts the cumulants.
+    nperseg = min(1024, signal.size)
+    freqs, psd = compute_psd(signal, fs, nperseg=nperseg)
+    fc_est = float(estimate_center_frequency(freqs, psd))
     classifier = ModulationClassifier()
-    modulation = classifier.predict(signal, fs)
+    modulation = classifier.predict(signal, fs, fc=fc_est)
 
     # Optional noise filtering pipeline
     if filter_noise or denoise:

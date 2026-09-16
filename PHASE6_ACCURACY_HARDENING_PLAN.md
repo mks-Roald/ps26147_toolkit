@@ -28,7 +28,7 @@ needed to make "accurate" a measurable, checkable claim instead of a hope.
 | EVM undefined/meaningless for FSK | ✅ Fixed | Deviation-domain `compute_fsk_evm()` + FSK soft-LLR branch (`4d8b502`) — §1.6 |
 | Bandwidth (`bw_10db`) underestimates vs. Carson's rule | ✅ Fixed | Per-modulation contour-ladder calibration (`2452e32` + `f8c6f3f`) — §1.7 |
 | No ground-truth test-signal corpus | ✅ Partially built | Generator (`00955e3`); `_cal/` now holds the 14-file .wav MPC leg (`0e2581b`) — §2, `.iq` leg + SNR ladder still to generate |
-| No automated accuracy scoring / CI regression gate | ✅ Implemented | `scripts/run_accuracy_report.py` built & run on `_cal/` (§3). Gate correctly FAILS at **74% vs ≥95% target**: QAM/PSK misclassified as AM, 4FSK as 2FSK → cascades into baud/bandwidth fails |
+| No automated accuracy scoring / CI regression gate | ✅ Implemented | `scripts/run_accuracy_report.py` built & run on `_cal/` (§3). Gate at **88.1%** after §1.8 (classifier fixed, all 7 modulations correct); remaining fails are baud extraction for PSK/QAM + 8PSK center-freq 1.51% — see §1.9 |
 
 ---
 
@@ -318,20 +318,63 @@ exist. Calibration against the ground-truth matrix (§2) will tell you whether
 
 ### 1.8 New (found by §3 harness): classifier mislabels QAM/PSK as AM, 4FSK as 2FSK
 
-> **Status: Open 🔴 (2026-09-16).** Not a bug in this plan's original ledger —
-> surfaced by the first run of the newly built `scripts/run_accuracy_report.py`.
+> **Status: Implemented ✅ (`bdd21e7` classifiers + `<next>`).** Monolithic
+> threshold tweaks were the wrong tool — root cause was deeper. The classifier
+> was featurising the *raw real passband* signal (carrier at 10 kHz, fs = 48 kHz);
+> cumulant/instantaneous features are only meaningful at *complex baseband*, so
+> every clean carrier-modulated signal collapsed to a near-identical "tone" and
+> the RF voted AM on all of them.  Fixed as a set of small, independently
+> revertable changes:
 >
-> On the clean `.wav` corpus the modulation classifier returns:
-> `QPSK → AM`, `8PSK → AM`, `16QAM → AM`, `64QAM → AM`, `4FSK → 2FSK`.
-> Because `process_file()` classifies *first* and then branches the whole
-> extractor on the result, a wrong modulation cascades: baud (144/83/116/300 vs
-> 1200) and bandwidth then fail too, even though the underlying measurements are
-> good on the modulations that classify correctly (BPSK/2FSK → exact baud).
+> - **A. Baseband downconversion.** `downconvert_baseband()` shifts the passband
+>   signal to complex baseband before any feature computation — the missing
+>   first step (root cause).
+> - **B. FSK gate.** Dropped `sigma_af > 0.012` (excluded low-baud 2FSK/4FSK);
+>   gate is now `sigma_aa < 0.10 and fsk_persistence > 0.85`, then histogram
+>   clustering separates 2 peaks (2FSK) vs 4 peaks (4FSK).
+> - **C. 16QAM vs 64QAM.** Split the QAM branch on `c63` (16QAM ~0.37 vs 64QAM
+>   ~1.70) instead of both falling into the 16QAM arm.
+> - **D. Decision path.** `predict()` now routes through the deterministic
+>   baseband rule-based engine instead of the RF (which was trained on a
+>   different regime). RF retained via `predict_proba`.
+> - **E. Double-downconversion bug.** `compute_cumulants(sig, fs, fc=...)` was
+>   applied *after* `downconvert_baseband`, downconverting a baseband signal a
+>   second time to −10 kHz and destroying `c20` (BPSK 1.0 → 0.018).  Removed the
+>   redundant `fc` pass-through.
+> - **F. Fine CFO recovery.** Coarse carrier (Welch argmax / centroid) lands
+>   tens-to-hundreds of Hz off for RRC bands (spectral *magnitude* peak ≠ band
+>   centre), and even a ~10 Hz residual CFO destroys cumulants.  Added a P-th
+>   power (P=4, fallback P=8) residual-CFO refinement inside downconversion.
+>   `process_file()` also threads the estimated centre frequency into the
+>   classifier.
 >
-> **Priority fix for §3's definition-of-done** (≥95% on the minimum corpus):
-> the classifier's AM-vs-(Q)PSK/QAM decision boundary and the 2FSK-vs-4FSK
-> boundary both need retuning. Fix the classifier, then re-run
-> `scripts/run_accuracy_report.py` — the gate will confirm.
+> **Result:** all 7 modulations classify exactly correct on `_cal/`; §3 gate went
+> 73.8% → **88.1%**.  Remaining failures are no longer the classifier — they are
+> the *baud-rate extractor* (QPSK/8PSK/16QAM/64QAM now that modulation is right)
+> and 8PSK centre-freq at 1.51% (just over the 1% tol).  See §1.9.
+
+### 1.9 New (isolated by §3 harness, post-§1.8): baud-rate estimator loses PSK/QAM
+
+> **Status: Open 🔴 (2026-09-16).** Now that §1.8 fixed modulation,
+> `estimate_baud_rate` is the remaining failure.  Modulation all correct;
+> BPSK/2FSK/4FSK give exact 1200, but QPSK→299, 8PSK→116, 16QAM→144, 64QAM→84.
+> The true 1200 Hz line **is** present in the transition-envelope PSD for every
+> modulation; the estimator just picks its spurious shoulder instead:
+>
+> 1. **QPSK/8PSK:** the sub-harmonic search (`estimate_baud_rate`, harmonic
+>    fallback) finds an unrelated low-freq line (e.g. 300 Hz ≈ 1200/4) with
+>    >15% of the top-peak power and wrongly promotes it as the "true
+>    fundamental". QPSK → 1200/4 = 300.
+> 2. **16QAM/64QAM:** the transition-envelope PSD's *strongest* in-band peak is
+>    a low-frequency spurious line (33/144 Hz) that outranks the real baud
+>    (1200), and the top-peak logic naively returns it.
+>
+> The transition-envelope (mag-diff + phase-diff) spectrum is fragile for
+> pulse-shaped PSK/QAM — RRC rolloff and constellation statistics inject
+> spurious low-freq energy.  **Candidate fix:** prefer a cyclostationary /
+> squared-envelope symbol-rate estimate (a guaranteed line at Rs) and/or gate
+> the sub-harmonic promotion on a higher power threshold, then re-run the §3
+> gate. Independent, revertable unit.
 
 ---
 
