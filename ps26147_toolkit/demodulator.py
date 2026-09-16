@@ -243,6 +243,38 @@ def compute_soft_llr(
         llrs = -symbols.real / noise_variance
         return np.clip(llrs, -20.0, 20.0).astype(np.float32)
 
+    if "FSK" in mod_upper:
+        # FSK (Phase 6 §1.6): bits live in instantaneous frequency, not the
+        # static complex constellation, so the generic distant-based LLR is
+        # meaningless here.  Derive LLR from the signed, diff'd instantaneous
+        # frequency estimate -- the same signal slice_symbols_to_bits uses:
+        #   dev = diff(unwrap(angle(symbols))),  bit 1 when dev >= 0.
+        # LLR convention (positive -> bit 0, negative -> bit 1) then gives
+        #   llr = -dev / noise_variance,  scaled by discriminator noise var.
+        dev = np.diff(np.unwrap(np.angle(symbols)))
+        if "4FSK" in mod_upper:
+            # 4FSK maps a sample of dev to 2 bits via the population quantiles
+            # q1 < q2 < q3  (see slice_symbols_to_bits).  For each of the two
+            # bit positions we soft-metric the distance of dev to its decision
+            # boundary, scaled by noise_variance.  This is approximate (not a
+            # full Gray-map), but strictly better than the -symbols.real fallback.
+            if len(dev) == 0:
+                return np.array([], dtype=np.float32)
+            q1, q2, q3 = np.percentile(dev, [25, 50, 75])
+            out: list[float] = []
+            for d in dev:
+                # MSB (bit 0): boundary q2 splits the lower two levels from the
+                # upper two; dev < q2 -> bit 0.
+                out.append(float(np.clip(-(d - q2) / noise_variance, -20.0, 20.0)))
+                # LSB (bit 1): boundary q1 within the lower half, q3 within the
+                # upper half.
+                b = q1 if d < q2 else q3
+                out.append(float(np.clip(-(d - b) / noise_variance, -20.0, 20.0)))
+            return np.array(out, dtype=np.float32)
+        # 2FSK / generic FSK: 1 bit per deviation sample
+        llrs = -dev / noise_variance
+        return np.clip(llrs, -20.0, 20.0).astype(np.float32)
+
     constellation = CONSTELLATIONS.get(mod_upper.replace("-", ""))
 
     if constellation is None:
@@ -430,6 +462,51 @@ def compute_evm(symbols: np.ndarray, ref_symbols: np.ndarray) -> dict:
     }
 
 
+def compute_fsk_evm(symbols: np.ndarray, modulation: str) -> dict:
+    """Deviation-domain EVM for FSK (Phase 6 §1.6).
+
+    FSK encodes bits in instantaneous *frequency*, not in a static complex
+    constellation, so the constellation-domain ``compute_evm()`` measures phase
+    rotation rather than demodulation error — a genuinely noiseless 2FSK file
+    used to read 2.9–3.6 dB EVM when there was no actual error to measure.
+
+    This computes the FSK analogue of EVM by:
+      1. estimating the per-symbol instantaneous-frequency deviation
+         ``dev = diff(unwrap(angle(symbols)))``  [rad/sample],
+      2. normalizing by an estimated deviation magnitude so ideal levels sit
+         at ±1,
+      3. measuring the RMS distance of each sample to the decision-derived
+         ideal (sign of ``dev``), normalized by ideal reference power.
+
+    Returns the same shape as ``compute_evm()``: ``evm_db``, ``evm_percent``,
+    ``noise_variance`` (the discriminator/deviation-domain noise — the scaling
+    the FSK LLR branch uses).
+    """
+    mod_upper = modulation.upper()
+    dev = np.diff(np.unwrap(np.angle(symbols)))
+    n = len(dev)
+    if n < 2:
+        return {"evm_db": 0.0, "evm_percent": 0.0, "noise_variance": 0.1}
+
+    delta = float(np.mean(np.abs(dev)))
+    if delta <= 1e-12:
+        return {"evm_db": 0.0, "evm_percent": 0.0, "noise_variance": 0.1}
+
+    dev_norm = dev / delta
+    ref = np.where(dev >= 0, 1.0, -1.0)          # decision-derived ideal ±1
+    error = dev_norm - ref
+    p_error = float(np.mean(error ** 2))
+    p_ref = 1.0                                   # mean(ref**2) with ref=±1
+    evm_rms = np.sqrt(p_error / p_ref)
+    evm_db = float(20.0 * np.log10(max(evm_rms, 1e-6)))
+
+    return {
+        "evm_db": round(evm_db, 2),
+        "evm_percent": round(evm_rms * 100.0, 2),
+        "noise_variance": max(p_error, 1e-6),
+    }
+
+
 def demodulate_signal(
     signal: np.ndarray,
     fs: float,
@@ -505,8 +582,13 @@ def demodulate_signal(
     # 5. Slicing to bits & reference symbols
     bits, ref_symbols = slice_symbols_to_bits(symbols_norm, modulation)
 
-    # 6. EVM calculation (Phase 4: enhanced with percentage and noise variance)
-    evm_results = compute_evm(symbols_norm, ref_symbols)
+    # 6. EVM calculation.  FSK uses the deviation-domain metric (Phase 6 §1.6):
+    #    the constellation-domain compute_evm() measures phase rotation, not
+    #    demodulation error, for FSK.  Non-FSK keeps the constellation metric.
+    if "FSK" in mod_upper:
+        evm_results = compute_fsk_evm(symbols_norm, modulation)
+    else:
+        evm_results = compute_evm(symbols_norm, ref_symbols)
 
     # 7. Soft LLR generation (Phase 4: for soft FEC decoding)
     llr = compute_soft_llr(symbols_norm, modulation, evm_results["noise_variance"])
