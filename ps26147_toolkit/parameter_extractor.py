@@ -437,9 +437,21 @@ def estimate_baud_rate(
     mag_diff = np.abs(np.diff(mag))
 
     # Phase difference (detects PSK/FSK phase transitions)
-    # Conjugate product difference gives instantaneous phase steps directly
+    # Conjugate product gives the signed instantaneous frequency directly:
+    #   dphi = angle(sig_bb[n] * conj(sig_bb[n-1]))
+    # For continuous-phase FSK, dphi alternates between +Δf·Ts and −Δf·Ts at
+    # the baud rate — that alternating SIGN is what encodes bit boundaries.
+    # Taking |dphi| (the old code) collapsed it to a near-constant series and
+    # destroyed the periodicity the baud search depends on (Phase 6 §1.5).
+    # Instead, DIFF the signed frequency: an impulse appears exactly at each
+    # bit transition and is zero elsewhere, giving a genuinely periodic signal
+    # regardless of the data's bit pattern.
     conj_prod = sig_bb[1:] * np.conj(sig_bb[:-1])
-    phase_diff = np.abs(np.angle(conj_prod))
+    dphi = np.angle(conj_prod)
+    phase_diff = np.abs(np.diff(dphi))
+    # np.diff shrinks by 1; pad to align with mag_diff length for the sum below
+    if len(phase_diff) > 0:
+        phase_diff = np.concatenate([[0.0], phase_diff])
 
     std_m = float(np.std(mag_diff)) + 1e-12
     std_p = float(np.std(phase_diff)) + 1e-12
