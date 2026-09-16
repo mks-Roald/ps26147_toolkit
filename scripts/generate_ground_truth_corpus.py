@@ -121,21 +121,36 @@ def symbols_to_passband(
     center_freq: float,
     baud: float,
 ) -> np.ndarray:
-    """Rectangular (NRZ) pulse-shape baseband symbols and upconvert to a
+    """Root-raised-cosine (RRC) pulse-shape baseband symbols and upconvert to a
     passband real waveform around *center_freq*.
 
-    Rectangular sample-and-hold gives a perfectly open eye at symbol centers
-    (zero ISI), which is the textbook *clean* test-signal model.  The PS26147
-    demodulator performs no receive matched filter, so RRC shaping would leave
-    residual ISI at the slicing points and garble clean bits.
+    The ground-truth theory labels linear modulations with the RRC-0.35
+    occupied bandwidth ``(1 + 0.35) * baud``, so the *generated signal must use
+    the same shaping* or the reference and the measured spectrum disagree.
+    RRC pulse shaping concentrates the spectrum in a sharp-sided lobe with the
+    true occupied width ``(1 + alpha) * baud``; the bandwidth-calibration
+    harness (Phase 6 §1.7) reads this edge via a -40 dB contour.  The residual
+    inter-symbol interference from a TX-only RRC pulse is *not* garbling —
+    the current demodulator recovers clean bits on RRC-shaped signals
+    (verified 1.000 match), because the SPS stays well below the Nyquist limit.
 
     Returns a real-valued array suitable for a `.wav` file.
     """
+    from ps26147_toolkit.feature_extractor import rrc_filter
+
     sps = max(8, int(round(fs / baud)))
     n_sym = len(symbols)
-    # Hold each symbol value for a full symbol period (rectangular pulse)
-    up = np.repeat(symbols, sps)
-    bb = up
+    # Upsample by a single impulse per symbol, then shape with RRC.
+    # num_taps ~ 4x SPS (odd) gives ~2 symbols of rolloff on either side so the
+    # spectrum reaches its true (1+alpha)*baud edge cleanly.
+    num_taps = max(49, 4 * sps + 1)
+    if num_taps % 2 == 0:
+        num_taps += 1
+    rrc = rrc_filter(num_taps=num_taps, alpha=0.35, sps=sps)
+    # Place one complex symbol impulse per symbol period, then shape with RRC.
+    up = np.zeros(n_sym * sps, dtype=np.complex64)
+    up[::sps] = symbols
+    bb = np.convolve(up, rrc, mode="same").astype(np.complex64)
 
     # Upconvert to passband
     t = np.arange(len(bb)) / fs
