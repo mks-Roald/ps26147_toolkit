@@ -102,7 +102,7 @@ def test_soft_decision_viterbi_awgn_ber_curve():
     print("\n=== Testing Soft vs Hard Decision Viterbi over AWGN ===")
     codec = ConvolutionalCodec(k=7, polys=(0o171, 0o133))
     rng = np.random.default_rng(123)
-    msg = rng.integers(0, 2, size=200, dtype=np.uint8)
+    msg = rng.integers(0, 2, size=2000, dtype=np.uint8)
     encoded = codec.encode(msg)
     n_coded = len(encoded)
     # BPSK: bit 1 -> +1, bit 0 -> -1
@@ -112,7 +112,11 @@ def test_soft_decision_viterbi_awgn_ber_curve():
     results = []
     for db in ebno_dbs:
         snr_lin = 10 ** (db / 10.0)
-        noise_std = np.sqrt(1.0 / (2 * snr_lin))  # complex noise per dimension, but BPSK real
+        # BPSK antipodal ±1 symbols, rate-1/2 code -> Eb = Es/r = 2, N0 = 2*sigma^2,
+        # so Eb/N0 = Es/(r*2*sigma^2) = 1/sigma^2  =>  sigma^2 = 1/snr_lin.
+        # (Earlier code used sqrt(1/(2*snr_lin)) here, +3 dB above the label, which
+        #  kept the whole sweep in the error-free regime and made this test vacuous.)
+        noise_std = np.sqrt(1.0 / snr_lin)
         rx = tx + noise_std * rng.standard_normal(n_coded).astype(np.float32)
         # Hard decision
         hard_bits = (rx >= 0).astype(np.uint8)
@@ -125,11 +129,21 @@ def test_soft_decision_viterbi_awgn_ber_curve():
         results.append((db, ber_hard, ber_soft))
         print(f"  Eb/N0 = {db} dB | hard BER = {ber_hard:.4f} | soft BER = {ber_soft:.4f}")
         # Soft must never be worse than hard (allow tiny margin for finite sample noise)
-        assert ber_soft <= ber_soft + 0.001, "soft worse than soft (sanity)"
+        assert ber_soft <= ber_hard + 0.001, \
+            f"soft BER ({ber_soft}) worse than hard ({ber_hard}) at Eb/N0={db} dB"
         # The key assertion: soft-decision must give coding gain over hard
         # For high SNR both should be zero; for low SNR soft should be <= hard
         # We allow soft == hard (both may hit zero floor) but soft must not exceed hard by more than tolerance
         # At moderate/high SNR soft should clearly beat hard
+
+    # Sanity guard against a vacuous curve: the lowest point MUST be in the
+    # error regime (hard BER > 0).  A noise-normalization bug that shifts the
+    # sweep +3 dB (the old sqrt(1/(2*snr)) version) keeps every point at 0 BER
+    # and would let this test pass while proving nothing about soft-vs-hard gain.
+    _, ber_hard_low, _ = results[0]
+    assert ber_hard_low > 0.0, \
+        f"Lowest point hard BER is 0.0 — sweep is not in the error regime; " \
+        f"a vacuous AWGN test can't validate §1.3.1"
 
     # At the highest SNR point, both should be very low
     _, ber_hard_high, ber_soft_high = results[-1]
