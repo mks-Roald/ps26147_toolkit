@@ -28,7 +28,10 @@ needed to make "accurate" a measurable, checkable claim instead of a hope.
 | EVM undefined/meaningless for FSK | ✅ Fixed | Deviation-domain `compute_fsk_evm()` + FSK soft-LLR branch (`4d8b502`) — §1.6 |
 | Bandwidth (`bw_10db`) underestimates vs. Carson's rule | ✅ Fixed | Per-modulation contour-ladder calibration (`2452e32` + `f8c6f3f`) — §1.7 |
 | No ground-truth test-signal corpus | ✅ Partially built | Generator (`00955e3`); `_cal/` now holds the 14-file .wav MPC leg (`0e2581b`) — §2, `.iq` leg + SNR ladder still to generate |
-| No automated accuracy scoring / CI regression gate | ✅ Implemented | `scripts/run_accuracy_report.py` built & run on `_cal/` (§3). Gate at **88.1%** after §1.8 (classifier fixed, all 7 modulations correct); remaining fails are baud extraction for PSK/QAM + 8PSK center-freq 1.51% — see §1.9 |
+| No automated accuracy scoring / CI regression gate | ✅ Implemented | `scripts/run_accuracy_report.py` built & run on `_cal/` (§3). Gate at **88.1%** after §1.8 (classifier fixed, all 7 modulations correct) |
+| Classifier mislabels QAM/PSK as AM, 4FSK as 2FSK | ✅ Fixed | §1.8 — baseband downconversion + rule-based path; all 7 modulations correct |
+| **Baud-rate estimator loses PSK/QAM (QPSK→299, 8PSK→116, 16QAM→144, 64QAM→84)** | 🔴 **TODO tomorrow** | §1.9 — sole remaining blocker for §3 gate |
+| 8PSK center-freq 1.51% (just over 1% tol) | 🔴 TODO | Secondary to baud; spectral centroid fails on 8PSK's asymmetric band — §1.9d |
 
 ---
 
@@ -375,6 +378,17 @@ exist. Calibration against the ground-truth matrix (§2) will tell you whether
 > squared-envelope symbol-rate estimate (a guaranteed line at Rs) and/or gate
 > the sub-harmonic promotion on a higher power threshold, then re-run the §3
 > gate. Independent, revertable unit.
+>
+> **d. Secondary: 8PSK center-freq reads 1.51% low (9849 vs 10000 Hz).**
+> `estimate_center_frequency` (peak bin + half-power weighted centroid on the
+> raw passband PSD) pulls the other modulations to <0.7% error but stalls on
+> 8PSK, whose spectral peak flattens ~9703 Hz and whose half-power centroid
+> converges to ~9849.  BPSK/QPSK on the same peak reach 9990/9969.  Worth
+> attacking alongside the baud fix tomorrow: either use the classifier's
+> P-th-power refined carrier (`downconvert_baseband`'s `best_fc`, which lands
+> essentially exact for PSK/QAM), or re-centre the centroid on the band's
+> true symmetry axis.  Not the §3 gate's main blocker (baud is 4 files; this
+> is 1), but easy to sweep up.
 
 ---
 
@@ -479,26 +493,32 @@ ad hoc file.)
 
 ## 3. Validation Harness & Regression Gate
 
-> **Status: Implemented ✅ (2026-09-16).** `scripts/run_accuracy_report.py`
-> is built and works: it feeds every ground-truth-paired `_cal/` file through
-> the real `process_file()` pipeline, diffs each parameter against the corpus
-> JSON, writes a Markdown report + machine-readable JSON summary, and exits
-> non-zero unless ≥95% of applicable checks pass.
+> **Status: implemented ✅ (2026-09-16), running at 88.1% — gate still FAILS.**
+> `scripts/run_accuracy_report.py` is built and works: it feeds every
+> ground-truth-paired `_cal/` file through the real `process_file()` pipeline,
+> diffs each parameter against the corpus JSON, writes a Markdown report +
+> machine-readable JSON summary, and exits non-zero unless ≥95% of applicable
+> checks pass.
 >
-> **First run (clean `.wav` leg, 7 files): pass rate 74% (31/42) — gate FAILS.**
-> The harness is doing its job, and it surfaced two real, un-fixed accuracy
-> problems rather than a harness defect:
+> **Run history:** first run **74% (31/42)** — the harness surfaced the
+> classifier mislabelling QAM/PSK as AM and 4FSK as 2FSK (the dominant
+> failure, since wrong modulation then broke baud/bandwidth downstream).
+> §1.8 fixed the classifier (all 7 modulations now exact) → **88.1% (37/42)**.
 >
-> 1. **Classifier mislabels QAM/PSK as AM** (16QAM, 64QAM, 8PSK, QPSK → AM)
->    and **4FSK as 2FSK**. This is the dominant failure: baud/bandwidth then
->    fail *downstream* because `extract_signal_parameters` branches on the
->    (wrong) modulation. BPSK/2FSK/4FSK-that-classified bauds are exact.
-> 2. **8PSK center freq 1.51%** (just over the 1% tol) and **4FSK bandwidth
->    29.6%** (over the 25% tol) — secondary, only where classification held.
+> **DONE today (2026-09-16):**
+> - §1.8 classifier — all 7 modulations classify exactly correct.
+> - §1.3 / §1.3.1 soft-decision Viterbi BER regression gate.
+> - §1.7 per-modulation bandwidth contour ladder.
+> - §3 harness built and green-lit as a regression gate.
 >
-> Definition-of-done for §3 (≥95% on the minimum corpus, 100% payload on
-> FEC+sync files) is therefore **not met yet** — the fix now belongs in the
-> classifier, and the report is the regression gate that will confirm it.
+> **TODO tomorrow (closing the 5 remaining FAILs):**
+> - **Baud rate for PSK/QAM** — QPSK→299, 8PSK→116, 16QAM→144, 64QAM→84
+>   instead of 1200 (4 files). The classic sub-harmonic / spurious low-freq
+>   line promotion in the transition-envelope estimator. See §1.9.
+> - **8PSK center-freq 1.51%** low (§1.9d, 1 file).
+>
+> Definition-of-done (≥95% on the minimum corpus, 100% payload on FEC+sync
+> files) is **not met yet** — baud extraction is the remaining blocker.
 
 Once §2's corpus exists, add `scripts/run_accuracy_report.py`:
 
