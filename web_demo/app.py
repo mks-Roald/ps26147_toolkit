@@ -176,10 +176,11 @@ def process_file(file_path: Path, display_name: str, fs_iq: float = 1000000.0) -
     # 1. Load signal
     t_start = time.time()
     if file_path.suffix.lower() == ".iq":
-        raw_signal = load_iq(str(file_path))
+        raw_signal, _ = load_iq(str(file_path))
         fs = fs_iq
     else:
-        fs, raw_signal = load_wav(str(file_path))
+        raw_signal, meta = load_wav(str(file_path))
+        fs = meta.fs
     telemetry['Signal Ingestion'] = {
         'status': 'complete',
         'metric': f'{len(raw_signal):,} samples',
@@ -310,9 +311,9 @@ def process_file(file_path: Path, display_name: str, fs_iq: float = 1000000.0) -
 
         if sync_mode == "Auto-Discover":
             discovery = auto_discover_preamble(target_stream)
-            if discovery["matched_standard_sync"]:
+            if discovery.get("matched_standard_sync"):
                 active_sync_word = STANDARD_SYNC_WORDS[discovery["matched_standard_sync"]]
-            elif discovery["candidate_preamble_bits"] is not None:
+            elif discovery.get("candidate_preamble_bits") is not None:
                 active_sync_word = discovery["candidate_preamble_bits"]
             else:
                 active_sync_word = STANDARD_SYNC_WORDS["Barker-13"]
