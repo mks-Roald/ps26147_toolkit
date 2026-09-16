@@ -28,7 +28,7 @@ needed to make "accurate" a measurable, checkable claim instead of a hope.
 | EVM undefined/meaningless for FSK | ✅ Fixed | Deviation-domain `compute_fsk_evm()` + FSK soft-LLR branch (`4d8b502`) — §1.6 |
 | Bandwidth (`bw_10db`) underestimates vs. Carson's rule | ✅ Fixed | Per-modulation contour-ladder calibration (`2452e32` + `f8c6f3f`) — §1.7 |
 | No ground-truth test-signal corpus | ✅ Partially built | Generator (`00955e3`); `_cal/` now holds the 14-file .wav MPC leg (`0e2581b`) — §2, `.iq` leg + SNR ladder still to generate |
-| No automated accuracy scoring / CI regression gate | 🔴 Open | `scripts/run_accuracy_report.py` still missing — §3 |
+| No automated accuracy scoring / CI regression gate | ✅ Implemented | `scripts/run_accuracy_report.py` built & run on `_cal/` (§3). Gate correctly FAILS at **74% vs ≥95% target**: QAM/PSK misclassified as AM, 4FSK as 2FSK → cascades into baud/bandwidth fails |
 
 ---
 
@@ -316,6 +316,25 @@ exist. Calibration against the ground-truth matrix (§2) will tell you whether
 
 ---
 
+### 1.8 New (found by §3 harness): classifier mislabels QAM/PSK as AM, 4FSK as 2FSK
+
+> **Status: Open 🔴 (2026-09-16).** Not a bug in this plan's original ledger —
+> surfaced by the first run of the newly built `scripts/run_accuracy_report.py`.
+>
+> On the clean `.wav` corpus the modulation classifier returns:
+> `QPSK → AM`, `8PSK → AM`, `16QAM → AM`, `64QAM → AM`, `4FSK → 2FSK`.
+> Because `process_file()` classifies *first* and then branches the whole
+> extractor on the result, a wrong modulation cascades: baud (144/83/116/300 vs
+> 1200) and bandwidth then fail too, even though the underlying measurements are
+> good on the modulations that classify correctly (BPSK/2FSK → exact baud).
+>
+> **Priority fix for §3's definition-of-done** (≥95% on the minimum corpus):
+> the classifier's AM-vs-(Q)PSK/QAM decision boundary and the 2FSK-vs-4FSK
+> boundary both need retuning. Fix the classifier, then re-run
+> `scripts/run_accuracy_report.py` — the gate will confirm.
+
+---
+
 ## 2. The Missing Piece: A Ground-Truth Test-Signal Corpus
 
 This is the actual ask, and it's the right instinct — **you cannot claim a
@@ -417,10 +436,26 @@ ad hoc file.)
 
 ## 3. Validation Harness & Regression Gate
 
-> **Status: Open 🔴 (2026-09-16).** This is the last remaining item in the plan.
-> The §2 corpus (`.wav` leg) and all of §1's fixes now exist and are committed,
-> so `scripts/run_accuracy_report.py` has real ground truth + fixed pipeline to
-> validate — the natural next step.
+> **Status: Implemented ✅ (2026-09-16).** `scripts/run_accuracy_report.py`
+> is built and works: it feeds every ground-truth-paired `_cal/` file through
+> the real `process_file()` pipeline, diffs each parameter against the corpus
+> JSON, writes a Markdown report + machine-readable JSON summary, and exits
+> non-zero unless ≥95% of applicable checks pass.
+>
+> **First run (clean `.wav` leg, 7 files): pass rate 74% (31/42) — gate FAILS.**
+> The harness is doing its job, and it surfaced two real, un-fixed accuracy
+> problems rather than a harness defect:
+>
+> 1. **Classifier mislabels QAM/PSK as AM** (16QAM, 64QAM, 8PSK, QPSK → AM)
+>    and **4FSK as 2FSK**. This is the dominant failure: baud/bandwidth then
+>    fail *downstream* because `extract_signal_parameters` branches on the
+>    (wrong) modulation. BPSK/2FSK/4FSK-that-classified bauds are exact.
+> 2. **8PSK center freq 1.51%** (just over the 1% tol) and **4FSK bandwidth
+>    29.6%** (over the 25% tol) — secondary, only where classification held.
+>
+> Definition-of-done for §3 (≥95% on the minimum corpus, 100% payload on
+> FEC+sync files) is therefore **not met yet** — the fix now belongs in the
+> classifier, and the report is the regression gate that will confirm it.
 
 Once §2's corpus exists, add `scripts/run_accuracy_report.py`:
 
