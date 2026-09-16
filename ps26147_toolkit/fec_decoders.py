@@ -158,6 +158,11 @@ class ConvolutionalCodec:
             Channel Log-Likelihood Ratios for each received code bit.
             LLR > 0 indicates bit is likely 0, LLR < 0 indicates bit is likely 1.
             Magnitude indicates confidence.
+
+            .. note:: **LLR sign convention** — positive means bit is likely 0,
+               negative means bit is likely 1.  See
+               ``demodulator.compute_soft_llr()`` BPSK branch for the
+               canonical worked example (``llrs = -symbols.real / noise_var``).
         max_len : int, optional
             Maximum length of decoded output.
 
@@ -247,20 +252,27 @@ def viterbi_decode(
     constraint_length: int = 7,
     polys: tuple[int, int] = (0o171, 0o133),
     soft_decision: bool = False,
+    llr: np.ndarray = None,
 ) -> dict:
     """Viterbi Decoder convenience wrapper.
 
     Parameters
     ----------
     bits : np.ndarray
-        For hard-decision (soft_decision=False): received bits (0/1).
-        For soft-decision (soft_decision=True): LLRs (positive=bit 0, negative=bit 1).
+        For hard-decision: received bits (0/1).
+        Ignored when *llr* is provided (soft-decision path uses LLRs instead).
     constraint_length : int
         Constraint length K (default: 7 for NASA standard).
     polys : tuple[int, int]
         Generator polynomials in octal (default: (0o171, 0o133)).
     soft_decision : bool
-        If True, treats input as LLRs and uses soft-decision decoding (~2.5 dB gain).
+        If True, uses soft-decision decoding (~2.5 dB gain).
+    llr : np.ndarray, optional
+        Channel LLRs (positive=bit 0, negative=bit 1) for soft-decision.
+        When provided, *soft_decision* is forced True regardless of the flag.
+        LLRs that are shorter than the coded bitstream are zero-padded; longer
+        LLRs are truncated.  Convention matches ``decode_soft()``:
+        positive → bit likely 0, negative → bit likely 1.
 
     Returns
     -------
@@ -268,19 +280,37 @@ def viterbi_decode(
         Decoding results with metadata.
     """
     codec = ConvolutionalCodec(k=constraint_length, polys=polys)
-    if soft_decision:
-        decoded = codec.decode_soft(bits)
+    rate_inv = len(polys)
+
+    if llr is not None and len(llr) > 0:
+        # --- Soft-decision path using provided LLRs ---
+        # Ensure LLR length matches coded bitstream length
+        coded_len = len(bits) if len(bits) > 0 else len(llr)
+        if len(llr) < coded_len:
+            llr_padded = np.zeros(coded_len, dtype=np.float32)
+            llr_padded[: len(llr)] = llr
+        else:
+            llr_padded = llr[:coded_len]
+
+        decoded = codec.decode_soft(llr_padded)
         decision_type = "Soft-Decision (LLR)"
+        input_bits_count = len(llr_padded)
+    elif soft_decision:
+        # Legacy path: bits array IS the LLR array
+        decoded = codec.decode_soft(bits.astype(np.float32))
+        decision_type = "Soft-Decision (LLR)"
+        input_bits_count = len(bits)
     else:
         decoded = codec.decode(bits)
         decision_type = "Hard-Decision"
+        input_bits_count = len(bits)
 
     return {
         "decoder": f"Viterbi (Convolutional) - {decision_type}",
-        "rate": f"1/{len(polys)}",
+        "rate": f"1/{rate_inv}",
         "constraint_length": constraint_length,
         "polynomials": [oct(p) for p in polys],
-        "input_bits": len(bits),
+        "input_bits": input_bits_count,
         "output_bits": len(decoded),
         "bits": decoded,
     }
@@ -539,13 +569,19 @@ def concatenated_decode(
     viterbi_polys: tuple[int, int] = (0o171, 0o133),
     rs_n: int = 255,
     rs_k: int = 223,
+    llr: np.ndarray = None,
 ) -> dict:
     """Standard DVB/CCSDS Concatenated FEC Decoder:
-    Stage 1: Inner Viterbi Convolutional Decoder.
+    Stage 1: Inner Viterbi Convolutional Decoder (soft-decision when LLRs available).
     Stage 2: Outer Reed-Solomon (255, 223) Algebraic Decoder.
     """
-    # Stage 1: Viterbi decoding
-    vit_res = viterbi_decode(bits, constraint_length=viterbi_k, polys=viterbi_polys)
+    # Stage 1: Viterbi decoding (soft-decision if LLRs provided)
+    vit_res = viterbi_decode(
+        bits,
+        constraint_length=viterbi_k,
+        polys=viterbi_polys,
+        llr=llr,
+    )
     vit_bits = vit_res["bits"]
 
     # Stage 2: Outer Reed-Solomon decoding
@@ -553,7 +589,7 @@ def concatenated_decode(
 
     return {
         "decoder": "Concatenated (Inner Viterbi + Outer Reed-Solomon)",
-        "inner_scheme": f"Convolutional (K={viterbi_k}, Rate 1/{len(viterbi_polys)})",
+        "inner_scheme": vit_res["decoder"],
         "outer_scheme": f"Reed-Solomon RS({rs_n}, {rs_k})",
         "input_bits": len(bits),
         "inner_output_bits": len(vit_bits),
@@ -777,9 +813,25 @@ FECScheme = Literal["viterbi", "reed-solomon", "concatenated", "ldpc", "none"]
 def decode_fec(
     bits: np.ndarray,
     scheme: FECScheme = "viterbi",
+    llr: np.ndarray = None,
     **kwargs: Any,
 ) -> dict:
-    """Dispatch decoding to the requested Forward Error Correction (FEC) scheme."""
+    """Dispatch decoding to the requested Forward Error Correction (FEC) scheme.
+
+    Parameters
+    ----------
+    bits : np.ndarray
+        Hard-decision bitstream (0/1).
+    scheme : str
+        FEC scheme name.
+    llr : np.ndarray, optional
+        Channel LLRs for soft-decision decoding.  When provided and the
+        selected scheme supports soft decisions (Viterbi / Concatenated),
+        the decoder automatically uses soft-decision mode for ~2.5 dB
+        coding gain over hard-decision.
+    **kwargs
+        Scheme-specific parameters forwarded to the individual decoders.
+    """
     if len(bits) == 0 or scheme == "none":
         return {
             "decoder": "None (Raw Pass-Through)",
@@ -791,13 +843,13 @@ def decode_fec(
     s = scheme.lower().replace("_", "-")
     if "vit" in s or "conv" in s:
         k_val = kwargs.get("constraint_length", 7)
-        return viterbi_decode(bits, constraint_length=k_val)
+        return viterbi_decode(bits, constraint_length=k_val, llr=llr)
     elif "rs" in s or "reed" in s or "solomon" in s:
         n_val = kwargs.get("n", 255)
         k_val = kwargs.get("k", 223)
         return reed_solomon_decode(bits, n=n_val, k=k_val)
     elif "concat" in s:
-        return concatenated_decode(bits)
+        return concatenated_decode(bits, llr=llr)
     elif "ldpc" in s:
         n_val = kwargs.get("n", 128)
         k_val = kwargs.get("k", 64)

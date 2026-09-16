@@ -296,7 +296,10 @@ def process_file(file_path: Path, display_name: str, fs_iq: float = 1000000.0) -
     if enable_fec and demod_data and demod_data["num_bits"] > 0:
         # If de-interleaving is enabled, feed de-interleaved bits into FEC decoder; otherwise feed raw demodulated bits
         input_fec_bits = deinterleave_result["bits"] if (deinterleave_result and len(deinterleave_result["bits"]) > 0) else demod_data["bits"]
-        fec_result = decode_fec(input_fec_bits, scheme=fec_scheme)
+        # Pass soft LLRs only when using the original demodulated bits
+        # (de-interleaving operates on hard bits, so LLRs don't survive re-ordering)
+        input_llr = demod_data["llr"] if (deinterleave_result is None or len(deinterleave_result["bits"]) == 0) else None
+        fec_result = decode_fec(input_fec_bits, scheme=fec_scheme, llr=input_llr)
 
     # 8. Bitstream Correlation & Frame Synchronization
     sync_result = None

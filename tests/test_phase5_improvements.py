@@ -74,14 +74,24 @@ def test_soft_decision_viterbi_wrapper():
     # Generate soft LLRs
     tx_signal = 2 * encoded.astype(np.float32) - 1
     rx_signal = tx_signal + 0.5 * rng.standard_normal(len(tx_signal)).astype(np.float32)
-    rx_llrs = 4 * rx_signal  # LLR approximation
+    # LLR approximation: note the convention in decode_soft() expects LLR > 0 -> bit likely 0, LLR < 0 -> bit likely 1.
+    # For BPSK, tx_signal = +1 for bit 1 and -1 for bit 0. After adding noise, the sign of rx_signal indicates the bit.
+    # Therefore, LLR should be proportional to -rx_signal (so that positive LLR corresponds to bit 0).
+    rx_llrs = -4 * rx_signal  # LLR approximation with correct sign
 
     # Test wrapper
     result = viterbi_decode(rx_llrs, soft_decision=True)
 
     assert "Soft-Decision" in result["decoder"]
     assert len(result["bits"]) > 0
-    print(f"Decoded {result['output_bits']} bits using soft-decision mode")
+    # Convert to numpy array for BER calculation
+    decoded_bits = np.array(result["bits"], dtype=np.uint8)
+    # Ensure same length as msg (wrapper may return padded or truncated)
+    min_len = min(len(msg), len(decoded_bits))
+    ber = np.sum(decoded_bits[:min_len] != msg[:min_len]) / min_len
+    print(f"Decoded {result['output_bits']} bits using soft-decision mode, BER = {ber:.4f}")
+    # At this noise level (0.5 std, approx 6 dB Es/N0), we expect low BER
+    assert ber < 0.01, f"BER too high: {ber}"
     print("[PASS] Viterbi wrapper with soft_decision=True works correctly")
 
 
