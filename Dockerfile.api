@@ -1,0 +1,35 @@
+# syntax=docker/dockerfile:1
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PORT=8000
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libsndfile1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements and project definitions
+COPY api/requirements.txt /app/api/requirements.txt
+COPY pyproject.toml /app/pyproject.toml
+COPY README.md /app/README.md
+
+# Install Python dependencies
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r /app/api/requirements.txt
+
+# Copy application and library source
+COPY ps26147_toolkit /app/ps26147_toolkit
+COPY api /app/api
+
+# Install toolkit in editable/local mode
+RUN pip install --no-cache-dir -e .
+
+EXPOSE 8000
+
+# Run FastAPI app with Uvicorn
+CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
