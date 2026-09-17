@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: sih-signal-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - sih-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8000
+    container_name: sih-signal-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - sih-network
+
+networks:
+  sih-network:
+    driver: bridge
