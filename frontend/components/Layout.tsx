@@ -14,6 +14,7 @@ export default function Layout({ children }: LayoutProps) {
 
   const navLinks = [
     { href: '/', label: 'Upload & Process' },
+    { href: '/live', label: '🔴 Live SDR Stream' },
     { href: '/results', label: 'Dashboard Results' },
     { href: '/about', label: 'About & Toolkit' },
   ];
