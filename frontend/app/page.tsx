@@ -2,7 +2,7 @@
 
 import { useState, useRef, DragEvent } from 'react';
 import { useRouter } from 'next/navigation';
-import { processFile } from '@/services/api';
+import { processFile, startAsyncProcess, pollJobStatus } from '@/services/api';
 import Link from 'next/link';
 
 export default function Home() {
@@ -11,9 +11,11 @@ export default function Home() {
 
   const [file, setFile] = useState<File | null>(null);
   const [sampleRate, setSampleRate] = useState<number>(1000000);
+  const [useAsync, setUseAsync] = useState<boolean>(true);
   const [isDragging, setIsDragging] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [progressPercent, setProgressPercent] = useState<number>(0);
   const [progressStage, setProgressStage] = useState<string>('');
 
   const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
@@ -46,15 +48,26 @@ export default function Home() {
 
     setLoading(true);
     setError(null);
-    setProgressStage('Ingesting & parsing raw signal samples…');
+    setProgressPercent(10);
+    setProgressStage('Initializing file upload…');
 
     try {
-      setTimeout(() => setProgressStage('Extracting spectral features & cumulants…'), 400);
-      setTimeout(() => setProgressStage('Classifying modulation & calculating SNR/Baud…'), 800);
+      let res;
+      if (useAsync) {
+        setProgressStage('Submitting job to background task queue…');
+        const job = await startAsyncProcess(file, sampleRate);
+        setProgressStage('Job queued. Polling execution status…');
 
-      const res = await processFile(file, sampleRate);
-      
-      // Store the result and metadata for the Results view
+        res = await pollJobStatus(job.job_id, (status) => {
+          setProgressPercent(Math.round(status.progress * 100));
+          setProgressStage(status.stage);
+        });
+      } else {
+        setProgressStage('Processing synchronous request…');
+        res = await processFile(file, sampleRate);
+      }
+
+      // Store results and navigate
       sessionStorage.setItem('lastResult', JSON.stringify(res));
       sessionStorage.setItem('lastFileName', file.name);
       sessionStorage.setItem('lastFileSize', String(file.size));
@@ -64,6 +77,7 @@ export default function Home() {
       setError(err.message || 'Signal processing failed. Please check the backend connection.');
     } finally {
       setLoading(false);
+      setProgressPercent(0);
       setProgressStage('');
     }
   };
@@ -138,8 +152,8 @@ export default function Home() {
           </div>
 
           {/* Configuration Inputs */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
-            <div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
+            <div className="sm:col-span-2">
               <label className="block text-xs font-mono text-slate-300 mb-1.5">
                 Sampling Rate (Hz)
               </label>
@@ -160,33 +174,58 @@ export default function Home() {
             </div>
 
             <div className="flex flex-col justify-end">
-              <button
-                type="submit"
-                disabled={loading || !file}
-                className="w-full py-2.5 px-4 rounded-lg font-semibold text-sm transition-all bg-gradient-to-r from-cyan-500 via-blue-600 to-fuchsia-600 text-white shadow-lg shadow-cyan-500/25 hover:shadow-cyan-500/40 hover:opacity-95 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
-              >
-                {loading ? (
-                  <>
-                    <svg className="animate-spin h-4 w-4 text-white" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                    </svg>
-                    <span>Processing Signal…</span>
-                  </>
-                ) : (
-                  <>
-                    <span>⚡ Run Full Pipeline</span>
-                  </>
-                )}
-              </button>
+              <label className="flex items-center space-x-2 text-xs font-mono text-slate-300 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2.5 cursor-pointer hover:border-cyan-500/50">
+                <input
+                  type="checkbox"
+                  checked={useAsync}
+                  onChange={(e) => setUseAsync(e.target.checked)}
+                  disabled={loading}
+                  className="rounded border-slate-700 text-cyan-500 focus:ring-cyan-500 bg-slate-900"
+                />
+                <span>Async Polling</span>
+              </label>
             </div>
           </div>
 
-          {/* Loading status message */}
-          {loading && progressStage && (
-            <div className="p-3 bg-cyan-950/40 border border-cyan-800/50 rounded-lg text-xs font-mono text-cyan-300 flex items-center space-x-2">
-              <span className="animate-pulse">▶</span>
-              <span>{progressStage}</span>
+          {/* Submit Button */}
+          <div>
+            <button
+              type="submit"
+              disabled={loading || !file}
+              className="w-full py-3 px-4 rounded-lg font-semibold text-sm transition-all bg-gradient-to-r from-cyan-500 via-blue-600 to-fuchsia-600 text-white shadow-lg shadow-cyan-500/25 hover:shadow-cyan-500/40 hover:opacity-95 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+            >
+              {loading ? (
+                <>
+                  <svg className="animate-spin h-4 w-4 text-white" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  <span>Processing Signal…</span>
+                </>
+              ) : (
+                <>
+                  <span>⚡ Run Full Pipeline</span>
+                </>
+              )}
+            </button>
+          </div>
+
+          {/* Live Progress Bar for Async Polling */}
+          {loading && (
+            <div className="space-y-2 p-4 bg-cyan-950/30 border border-cyan-800/40 rounded-xl font-mono text-xs text-cyan-300">
+              <div className="flex justify-between items-center">
+                <span className="flex items-center space-x-2">
+                  <span className="animate-pulse text-cyan-400">▶</span>
+                  <span>{progressStage || 'Processing…'}</span>
+                </span>
+                <span className="font-bold">{progressPercent}%</span>
+              </div>
+              <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+                <div
+                  className="bg-gradient-to-r from-cyan-400 via-blue-500 to-fuchsia-500 h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${Math.max(5, progressPercent)}%` }}
+                ></div>
+              </div>
             </div>
           )}
 
