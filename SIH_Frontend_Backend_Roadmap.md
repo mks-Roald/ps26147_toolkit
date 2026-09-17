@@ -57,6 +57,8 @@ ps26147_toolkit/
 |---|---|---|---|---|
 | `GET /health` | GET | None | `{"status": "ok"}` | ✅ Completed |
 | `POST /process/file` | POST | Multipart Form (`file`, `fs`) | `ProcessResponse` (Modulation, Confidence, Baud, SNR dB, Bandwidth, Waveform points, PSD spectrum, Constellation scatter) | ✅ Completed |
+| `POST /process/async` | POST | Multipart Form (`file`, `fs`) | `AsyncJobResponse` (`job_id`, `status: "queued"`, `message`) | ✅ Completed |
+| `GET /process/status/{job_id}` | GET | Path (`job_id`) | `JobStatusResponse` (`job_id`, `status`, `progress`, `stage`, `result`, `error`) | ✅ Completed |
 | `POST /classify/` | POST | Multipart Form (`file`, `fs`) | `ClassifyResponse` (Modulation, Confidence, Cumulants & Features dictionary) | ✅ Completed |
 | `POST /decode/` | POST | Multipart Form (`file`, `fs`, `fec_scheme`) | `DecodeResponse` (Bit count, Bit string preview, Hex dump, EVM dB/%, Decoded bits) | ✅ Completed |
 
@@ -118,5 +120,5 @@ Open `http://localhost:3000` in the browser.
 - [x] **7. Multi-Format File Ingestion**: WAV RIFF parsing, IQ stream auto-detection, and SigMF handling.
 - [x] **8. Multi-Chart Results Dashboard**: Waveform line chart, Welch PSD area chart, and I/Q constellation scatter plot.
 - [x] **9. Automated Test Verification**: End-to-end API test suite validated across all endpoints.
-- [ ] **10. Live Constellation Streaming / WebSocket (Optional Enhancement)**: Real-time SDR streaming via WebSockets.
-- [ ] **11. Production Containerization**: Dockerfile for backend service & Vercel deployment configuration for frontend.
+- [x] **10. Async Background Processing & Status Polling**: In-memory task queue, `/process/async` submission, live percentage progress bar, and `/process/status/{job_id}` polling.
+- [ ] **11. Live Constellation Streaming / WebSocket (Optional Enhancement)**: Real-time SDR streaming via WebSockets.

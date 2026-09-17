@@ -44,3 +44,17 @@ class DecodeResponse(BaseModel):
     fec_scheme: Optional[str] = None
     decoded_bits_count: int
     decoded_bits: List[int]
+
+class AsyncJobResponse(BaseModel):
+    job_id: str
+    status: str
+    message: str
+
+class JobStatusResponse(BaseModel):
+    job_id: str
+    status: str  # "queued", "processing", "completed", "failed"
+    progress: float  # 0.0 to 1.0
+    stage: str
+    created_at: float
+    result: Optional[ProcessResponse] = None
+    error: Optional[str] = None
