@@ -1,0 +1,270 @@
+{
+  "files_processed": 7,
+  "files_crashed": 0,
+  "checks_passed": 42,
+  "checks_total": 42,
+  "pass_rate": 1.0,
+  "target_pass_rate": 0.95,
+  "definition_of_done_met": true,
+  "per_file": {
+    "16qam_clean_wav.wav": {
+      "passed": true,
+      "checks_passed": 6,
+      "checks_total": 6,
+      "details": [
+        {
+          "param": "modulation",
+          "passed": true,
+          "detail": "exact match"
+        },
+        {
+          "param": "center_frequency_hz",
+          "passed": true,
+          "detail": "GT 1e+04 vs got 1.003e+04 (0.28%)"
+        },
+        {
+          "param": "bandwidth_hz",
+          "passed": true,
+          "detail": "GT 1620 vs got 1594 (1.62%)"
+        },
+        {
+          "param": "baud_rate",
+          "passed": true,
+          "detail": "GT 1200 vs got 1199 (0.05%)"
+        },
+        {
+          "param": "snr_db",
+          "passed": true,
+          "detail": "N/A (GT clean -> reading pegs at ceiling)"
+        },
+        {
+          "param": "payload_text",
+          "passed": true,
+          "detail": "N/A (measure fields only; demod payload path not yet wired)"
+        }
+      ]
+    },
+    "2fsk_clean_wav.wav": {
+      "passed": true,
+      "checks_passed": 6,
+      "checks_total": 6,
+      "details": [
+        {
+          "param": "modulation",
+          "passed": true,
+          "detail": "exact match"
+        },
+        {
+          "param": "center_frequency_hz",
+          "passed": true,
+          "detail": "GT 1e+04 vs got 9955 (0.45%)"
+        },
+        {
+          "param": "bandwidth_hz",
+          "passed": true,
+          "detail": "GT 2196 vs got 2203 (0.32%)"
+        },
+        {
+          "param": "baud_rate",
+          "passed": true,
+          "detail": "GT 1200 vs got 1200 (0.01%)"
+        },
+        {
+          "param": "snr_db",
+          "passed": true,
+          "detail": "N/A (GT clean -> reading pegs at ceiling)"
+        },
+        {
+          "param": "payload_text",
+          "passed": true,
+          "detail": "N/A (measure fields only; demod payload path not yet wired)"
+        }
+      ]
+    },
+    "4fsk_clean_wav.wav": {
+      "passed": true,
+      "checks_passed": 6,
+      "checks_total": 6,
+      "details": [
+        {
+          "param": "modulation",
+          "passed": true,
+          "detail": "exact match"
+        },
+        {
+          "param": "center_frequency_hz",
+          "passed": true,
+          "detail": "GT 1e+04 vs got 9954 (0.46%)"
+        },
+        {
+          "param": "bandwidth_hz",
+          "passed": true,
+          "detail": "GT 2196 vs got 1969 (10.35%)"
+        },
+        {
+          "param": "baud_rate",
+          "passed": true,
+          "detail": "GT 1200 vs got 1200 (0.01%)"
+        },
+        {
+          "param": "snr_db",
+          "passed": true,
+          "detail": "N/A (GT clean -> reading pegs at ceiling)"
+        },
+        {
+          "param": "payload_text",
+          "passed": true,
+          "detail": "N/A (measure fields only; demod payload path not yet wired)"
+        }
+      ]
+    },
+    "64qam_clean_wav.wav": {
+      "passed": true,
+      "checks_passed": 6,
+      "checks_total": 6,
+      "details": [
+        {
+          "param": "modulation",
+          "passed": true,
+          "detail": "exact match"
+        },
+        {
+          "param": "center_frequency_hz",
+          "passed": true,
+          "detail": "GT 1e+04 vs got 9969 (0.31%)"
+        },
+        {
+          "param": "bandwidth_hz",
+          "passed": true,
+          "detail": "GT 1620 vs got 1641 (1.27%)"
+        },
+        {
+          "param": "baud_rate",
+          "passed": true,
+          "detail": "GT 1200 vs got 1199 (0.05%)"
+        },
+        {
+          "param": "snr_db",
+          "passed": true,
+          "detail": "N/A (GT clean -> reading pegs at ceiling)"
+        },
+        {
+          "param": "payload_text",
+          "passed": true,
+          "detail": "N/A (measure fields only; demod payload path not yet wired)"
+        }
+      ]
+    },
+    "8psk_clean_wav.wav": {
+      "passed": true,
+      "checks_passed": 6,
+      "checks_total": 6,
+      "details": [
+        {
+          "param": "modulation",
+          "passed": true,
+          "detail": "exact match"
+        },
+        {
+          "param": "center_frequency_hz",
+          "passed": true,
+          "detail": "GT 1e+04 vs got 9940 (0.60%)"
+        },
+        {
+          "param": "bandwidth_hz",
+          "passed": true,
+          "detail": "GT 1620 vs got 1594 (1.62%)"
+        },
+        {
+          "param": "baud_rate",
+          "passed": true,
+          "detail": "GT 1200 vs got 1200 (0.01%)"
+        },
+        {
+          "param": "snr_db",
+          "passed": true,
+          "detail": "N/A (GT clean -> reading pegs at ceiling)"
+        },
+        {
+          "param": "payload_text",
+          "passed": true,
+          "detail": "N/A (measure fields only; demod payload path not yet wired)"
+        }
+      ]
+    },
+    "bpsk_clean_wav.wav": {
+      "passed": true,
+      "checks_passed": 6,
+      "checks_total": 6,
+      "details": [
+        {
+          "param": "modulation",
+          "passed": true,
+          "detail": "exact match"
+        },
+        {
+          "param": "center_frequency_hz",
+          "passed": true,
+          "detail": "GT 1e+04 vs got 1e+04 (0.00%)"
+        },
+        {
+          "param": "bandwidth_hz",
+          "passed": true,
+          "detail": "GT 1620 vs got 1641 (1.27%)"
+        },
+        {
+          "param": "baud_rate",
+          "passed": true,
+          "detail": "GT 1200 vs got 1200 (0.01%)"
+        },
+        {
+          "param": "snr_db",
+          "passed": true,
+          "detail": "N/A (GT clean -> reading pegs at ceiling)"
+        },
+        {
+          "param": "payload_text",
+          "passed": true,
+          "detail": "N/A (measure fields only; demod payload path not yet wired)"
+        }
+      ]
+    },
+    "qpsk_clean_wav.wav": {
+      "passed": true,
+      "checks_passed": 6,
+      "checks_total": 6,
+      "details": [
+        {
+          "param": "modulation",
+          "passed": true,
+          "detail": "exact match"
+        },
+        {
+          "param": "center_frequency_hz",
+          "passed": true,
+          "detail": "GT 1e+04 vs got 9983 (0.17%)"
+        },
+        {
+          "param": "bandwidth_hz",
+          "passed": true,
+          "detail": "GT 1620 vs got 1594 (1.62%)"
+        },
+        {
+          "param": "baud_rate",
+          "passed": true,
+          "detail": "GT 1200 vs got 1200 (0.01%)"
+        },
+        {
+          "param": "snr_db",
+          "passed": true,
+          "detail": "N/A (GT clean -> reading pegs at ceiling)"
+        },
+        {
+          "param": "payload_text",
+          "passed": true,
+          "detail": "N/A (measure fields only; demod payload path not yet wired)"
+        }
+      ]
+    }
+  }
+}
