@@ -1,4 +1,6 @@
 import Link from 'next/link';
+import Layout from '@/components/Layout';
+import Card from '@/components/base/Card';
 
 export default function About() {
   const phases = [
@@ -29,38 +31,67 @@ export default function About() {
   ];
 
   return (
-    <div className="max-w-4xl mx-auto space-y-10">
-      <div className="border-b border-slate-800 pb-6">
-        <h1 className="text-3xl font-black text-white tracking-tight mb-2">About SIH PS26147 Toolkit</h1>
-        <p className="text-slate-400 text-sm">
-          Autonomous RF Signal Intelligence, Modulation Recognition, and Multi-Stage Waveform Decoding Suite.
-        </p>
-      </div>
+    <Layout>
+      <div className="max-w-4xl mx-auto space-y-16">
+        {/* Header */}
+        <section className="space-y-4 text-center">
+          <h1 className="text-3xl sm:text-4xl font-geist font-weight-600 tracking-tighter text-ink">
+            About SIH PS26147 Toolkit
+          </h1>
+          <p className="text-ink-muted text-base max-w-2xl mx-auto leading-relaxed">
+            Autonomous RF Signal Intelligence, Modulation Recognition, and Multi-Stage Waveform Decoding Suite.
+          </p>
+        </section>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {phases.map((p, idx) => (
-          <div key={idx} className="p-5 rounded-xl bg-slate-900/60 border border-slate-800 hover:border-cyan-500/30 transition-all">
-            <h3 className="font-bold text-cyan-400 text-sm mb-2">{p.title}</h3>
-            <p className="text-xs text-slate-300 leading-relaxed">{p.description}</p>
+        {/* Phases Grid */}
+        <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {phases.map((phase, idx) => (
+            <Card key={idx} className="p-6 hover:floating-shadow transition-all duration-300">
+              <div className="flex items-center justify-start mb-4">
+                <div className="w-10 h-10 flex items-center justify-center bg-cyan-950/50 text-cyan-400 rounded-full text-lg">
+                  {idx + 1}
+                </div>
+                <h3 className="text-geist font-weight-600 text-lg text-ink mb-0 ml-3">{phase.title}</h3>
+              </div>
+              <p className="text-ink-faint text-sm font-geist-mono leading-relaxed">
+                {phase.description}
+              </p>
+            </Card>
+          ))}
+        </section>
+
+        {/* API Contract */}
+        <section className="bg-canvas-elevated hairline-border rounded-lg p-6 whisper-shadow">
+          <h2 className="text-geist font-weight-600 text-lg text-ink mb-4">
+            Backend REST API Contract
+          </h2>
+          <div className="space-y-3 text-xs font-geist-mono text-ink-faint">
+            <p>
+              <span className="font-geist-mono font-weight-500 text-ink">POST /process/file</span> —
+              Ingests file, extracts physical parameters (SNR, Baud, BW, fc), predicts modulation, and returns time-series waveform & PSD.
+            </p>
+            <p>
+              <span className="font-geist-mono font-weight-500 text-ink">POST /classify/</span> —
+              Fast modulation classifier with confidence and cumulants.
+            </p>
+            <p>
+              <span className="font-geist-mono font-weight-500 text-ink">POST /decode/</span> —
+              Demodulates signal to raw symbols, applies Gardner/Costas sync, and executes optional FEC decoding.
+            </p>
+            <p>
+              <span className="font-geist-mono font-weight-500 text-ink">GET /health</span> —
+              Service liveness and health probe.
+            </p>
           </div>
-        ))}
-      </div>
+        </section>
 
-      <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-6 space-y-4">
-        <h2 className="text-base font-bold text-white font-mono">Backend REST API Contract</h2>
-        <div className="text-xs font-mono text-slate-300 space-y-2">
-          <p><span className="text-cyan-400 font-bold">POST /process/file</span> — Ingests file, extracts physical parameters (SNR, Baud, BW, fc), predicts modulation, and returns time-series waveform & PSD.</p>
-          <p><span className="text-fuchsia-400 font-bold">POST /classify/</span> — Fast modulation classifier with confidence and cumulants.</p>
-          <p><span className="text-blue-400 font-bold">POST /decode/</span> — Demodulates signal to raw symbols, applies Gardner/Costas sync, and executes optional FEC decoding.</p>
-          <p><span className="text-emerald-400 font-bold">GET /health</span> — Service liveness and health probe.</p>
+        {/* CTA */}
+        <div className="text-center pt-8">
+          <Link href="/" className="inline-flex items-center space-x-2 px-6 py-3 rounded-pill bg-ink text-on-primary font-geist font-weight-500 hover:bg-ink/90 transition-all duration-200">
+            <span>⚡ Start Analyzing Signals</span>
+          </Link>
         </div>
       </div>
-
-      <div className="text-center pt-4">
-        <Link href="/" className="inline-block px-5 py-2.5 rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-medium text-xs hover:opacity-90 transition-all">
-          ← Start Analyzing Signals
-        </Link>
-      </div>
-    </div>
+    </Layout>
   );
 }
