@@ -26,6 +26,18 @@
   --font-geist-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+.duration-150 {
+  transition-duration: 150ms;
+}
+
+.outline-none {
+  outline: none;
+}
+
 /* Base styles */
 html {
   color-scheme: dark light;
@@ -63,37 +75,65 @@ body {
   box-shadow: 0 0 20px rgba(243, 85, 218, 0.25);
 }
 
-.hairline-border {
+@utility hairline-border {
   border-width: 1px;
   border-color: var(--color-border);
 }
 
-.whisper-shadow {
+@utility whisper-shadow {
   box-shadow: 0px 1px 1px rgba(0,0,0,0.04);
 }
 
-.floating-shadow {
+@utility floating-shadow {
   box-shadow: 0px 2px 2px rgba(0,0,0,0.04), 0px 8px 16px -4px rgba(0,0,0,0.04);
 }
 
-.transition-all {
+@utility transition-all {
   transition-property: all;
   transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
   transition-duration: 150ms;
 }
 
-.focus-ring-2 {
+@utility focus-ring-2 {
   --tw-ring-offset-shadow: var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color);
   --tw-ring-shadow: var(--tw-ring-inset) 0 0 0 calc(2px + var(--tw-ring-offset-width)) var(--tw-ring-color);
   box-shadow: var(--tw-ring-offset-shadow) var(--tw-ring-shadow) var(--tw-ring-shadow, 0 0 0) var(--tw-ring-inset-shadow, 0 0 0);
 }
 
-.focus-ring-blue {
+@utility focus-ring-blue {
   --tw-ring-color: rgb(79 195 247 / 0.5);
 }
 
+@utility bg-color-canvas {
+  background-color: var(--color-canvas);
+}
+
+@utility bg-color-canvas-elevated {
+  background-color: var(--color-canvas-elevated);
+}
+
+@utility text-color-ink {
+  color: var(--color-ink);
+}
+
+@utility text-color-ink-faint {
+  color: var(--color-ink-faint);
+}
+
+@utility border-blue {
+  border-color: var(--color-blue);
+}
+
+@utility rounded-pill {
+  border-radius: 9999px;
+}
+
+@utility font-geist {
+  font-family: var(--font-geist);
+}
+
 /* Button base styles */
-.btn-base {
+@utility btn-base {
   font-weight: 500;
   @apply transition-all duration-150 hover:scale-[1.02] active:scale-[0.98];
 }
