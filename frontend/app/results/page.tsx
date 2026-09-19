@@ -18,6 +18,7 @@ import {
   Area,
 } from 'recharts';
 import { ProcessResult } from '@/services/api';
+import Card from '@/components/base/Card';
 
 export default function Results() {
   const router = useRouter();
@@ -45,18 +46,18 @@ export default function Results() {
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center py-20 space-y-4">
-        <div className="w-10 h-10 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin"></div>
-        <p className="font-mono text-sm text-slate-400">Loading analysis results…</p>
+        <div className="w-12 h-12 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin"></div>
+        <p className="font-geist-mono font-weight-500 text-ink-muted text-base">Loading analysis results…</p>
       </div>
     );
   }
 
   if (!data) {
     return (
-      <div className="text-center py-20 space-y-4">
-        <p className="text-slate-400">No analysis results found.</p>
-        <Link href="/" className="inline-block px-4 py-2 bg-cyan-600 rounded-lg text-sm text-white font-medium hover:bg-cyan-500">
-          Upload Signal File
+      <div className="flex flex-col items-center justify-center py-20 space-y-6">
+        <p className="text-ink-muted text-base">No analysis results found.</p>
+        <Link href="/" className="inline-flex items-center space-x-2 px-6 py-3 rounded-pill bg-ink text-on-primary font-geist font-weight-500 hover:bg-ink/90 transition-all duration-200">
+          <span>⬆️ Upload Signal File</span>
         </Link>
       </div>
     );
@@ -67,129 +68,189 @@ export default function Results() {
   const constellationData = data.constellation_data ? data.constellation_data.map((pt) => ({ i: Number(pt.i.toFixed(4)), q: Number(pt.q.toFixed(4)) })) : [];
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-16">
       {/* Top Header & Breadcrumb */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-5">
-        <div>
-          <div className="flex items-center space-x-2 text-xs font-mono text-slate-400 mb-1">
-            <Link href="/" className="hover:text-cyan-400 transition-colors">← Back to Upload</Link>
-            <span>/</span>
-            <span className="text-slate-200 truncate max-w-xs">{fileName}</span>
+      <header className="border-b border-hairline pb-8">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
+          <div>
+            <div className="flex items-center space-x-3 mb-4">
+              <Link href="/" className="flex items-center space-x-2 px-4 py-2 rounded-full bg-cyan-950/60 border border-cyan-500/30 text-cyan-400 text-xs font-geist-mono font-weight-500 hover:bg-cyan-950/70 transition-colors duration-200">
+                ← Back to Upload
+              </Link>
+              <span>/</span>
+              <span className="text-xs font-geist-mono font-weight-500 text-ink-faint truncate max-w-xs">{fileName}</span>
+            </div>
+            <h1 className="text-3xl sm:text-4xl font-geist font-weight-600 tracking-tighter text-ink">
+              Signal Analysis Report
+            </h1>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">Signal Analysis Report</h1>
-        </div>
 
-        <div className="flex items-center space-x-3">
-          <Link
-            href="/"
-            className="px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-200 border border-slate-700 transition-all hover:border-cyan-500/40"
-          >
-            + Analyze Another Signal
-          </Link>
+          <div className="flex items-center space-x-4">
+            <Link
+              href="/"
+              className="flex items-center space-x-3 px-6 py-3 rounded-pill font-geist font-weight-500 transition-all duration-200 hover:bg-ink/90 bg-ink text-on-primary"
+            >
+              <span>+ Analyze Another Signal</span>
+            </Link>
+          </div>
         </div>
-      </div>
+      </header>
 
       {/* Primary Key Metric Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <section className="grid gap-6">
         {/* Modulation */}
-        <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-5 shadow-lg relative overflow-hidden group hover:border-cyan-500/40 transition-all">
-          <div className="absolute top-0 left-0 h-1 w-full bg-cyan-400"></div>
-          <p className="text-xs font-mono text-slate-400 uppercase tracking-wider mb-1">Modulation</p>
-          <p className="text-2xl sm:text-3xl font-black text-cyan-400">{data.modulation}</p>
-          <p className="text-xs font-mono text-slate-400 mt-2">
-            Confidence: <span className="text-emerald-400 font-semibold">{((data.confidence ?? 1) * 100).toFixed(1)}%</span>
+        <Card className="col-span-1 md:col-span-2 lg:col-span-1 p-6 hover:floating-shadow transition-all duration-300">
+          <div className="flex items-center justify-start mb-4">
+            <div className="w-10 h-10 flex items-center justify-center bg-cyan-950/50 text-cyan-400 rounded-full text-lg">
+              1
+            </div>
+            <h3 className="text-geist font-weight-600 text-lg text-ink-faint mb-0 ml-3 uppercase">
+              Modulation
+            </h3>
+          </div>
+          <p className="text-2xl font-geist font-weight-600 text-cyan-400">
+            {data.modulation ?? '—'}
           </p>
-        </div>
-
-        {/* Baud Rate */}
-        <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-5 shadow-lg relative overflow-hidden group hover:border-fuchsia-500/40 transition-all">
-          <div className="absolute top-0 left-0 h-1 w-full bg-fuchsia-400"></div>
-          <p className="text-xs font-mono text-slate-400 uppercase tracking-wider mb-1">Baud Rate</p>
-          <p className="text-2xl sm:text-3xl font-black text-fuchsia-400">
-            {data.baud_rate !== undefined && data.baud_rate > 0 ? (
-              data.baud_rate >= 1000 ? `${(data.baud_rate / 1000).toFixed(2)} kBd` : `${data.baud_rate.toFixed(1)} Bd`
-            ) : (
-              'N/A'
-            )}
+          <p className="text-xs font-geist-mono text-ink-faint mt-2">
+            Confidence: <span className="text-emerald-400 font-geist-mono">{((data.confidence ?? 0) * 100).toFixed(1)}%</span>
           </p>
-          <p className="text-xs font-mono text-slate-400 mt-2">Cyclic Transition Est.</p>
-        </div>
+        </Card>
 
         {/* SNR */}
-        <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-5 shadow-lg relative overflow-hidden group hover:border-blue-500/40 transition-all">
-          <div className="absolute top-0 left-0 h-1 w-full bg-blue-400"></div>
-          <p className="text-xs font-mono text-slate-400 uppercase tracking-wider mb-1">Estimated SNR</p>
-          <p className="text-2xl sm:text-3xl font-black text-blue-400">
-            {data.snr !== undefined ? `${data.snr.toFixed(1)} dB` : 'N/A'}
+        <Card className="col-span-1 md:col-span-2 lg:col-span-1 p-6 hover:floating-shadow transition-all duration-300">
+          <div className="flex items-center justify-start mb-4">
+            <div className="w-10 h-10 flex items-center justify-center bg-blue-950/50 text-blue-400 rounded-full text-lg">
+              2
+            </div>
+            <h3 className="text-geist font-weight-600 text-lg text-ink-faint mb-0 ml-3 uppercase">
+              SNR
+            </h3>
+          </div>
+          <p className="text-2xl font-geist font-weight-600 text-blue-400">
+            {data.snr_db !== null && data.snr_db !== undefined ? `${data.snr_db.toFixed(1)} dB` : '—'}
           </p>
-          <p className="text-xs font-mono text-slate-400 mt-2">M2M4 In-Band Split</p>
-        </div>
+          <p className="text-xs font-geist-mono text-ink-faint mt-2">
+            Signal-to-Noise Ratio
+          </p>
+        </Card>
+
+        {/* Baud Rate */}
+        <Card className="col-span-1 md:col-span-2 lg:col-span-1 p-6 hover:floating-shadow transition-all duration-300">
+          <div className="flex items-center justify-start mb-4">
+            <div className="w-10 h-10 flex items-center justify-center bg-fuchsia-950/50 text-fuchsia-400 rounded-full text-lg">
+              3
+            </div>
+            <h3 className="text-geist font-weight-600 text-lg text-ink-faint mb-0 ml-3 uppercase">
+              Baud Rate
+            </h3>
+          </div>
+          <p className="text-2xl font-geist font-weight-600 text-fuchsia-400">
+            {data.baud_rate !== null && data.baud_rate !== undefined && data.baud_rate > 0 ? (
+              data.baud_rate >= 1000 ? `${(data.baud_rate / 1000).toFixed(2)} kBd` : `${data.baud_rate.toFixed(1)} Bd`
+            ) : (
+              '—'
+            )}
+          </p>
+          <p className="text-xs font-geist-mono text-ink-faint mt-2">
+            Symbol Rate
+          </p>
+        </Card>
+
+        {/* Center Frequency */}
+        <Card className="col-span-1 md:col-span-2 lg:col-span-1 p-6 hover:floating-shadow transition-all duration-300">
+          <div className="flex items-center justify-start mb-4">
+            <div className="w-10 h-10 flex items-center justify-center bg-emerald-950/50 text-emerald-400 rounded-full text-lg">
+              4
+            </div>
+            <h3 className="text-geist font-weight-600 text-lg text-ink-faint mb-0 ml-3 uppercase">
+              Center Frequency
+            </h3>
+          </div>
+          <p className="text-2xl font-geist font-weight-600 text-emerald-400">
+            {data.center_frequency_hz !== null && data.center_frequency_hz !== undefined ? (
+              Math.abs(data.center_frequency_hz) >= 1e6
+                ? `${(data.center_frequency_hz / 1e6).toFixed(2)} MHz`
+                : `${(data.center_frequency_hz / 1e3).toFixed(1)} kHz`
+            ) : (
+              '—'
+            )}
+          </p>
+          <p className="text-xs font-geist-mono text-ink-faint mt-2">
+            RF Carrier
+          </p>
+        </Card>
 
         {/* Bandwidth */}
-        <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-5 shadow-lg relative overflow-hidden group hover:border-emerald-500/40 transition-all">
-          <div className="absolute top-0 left-0 h-1 w-full bg-emerald-400"></div>
-          <p className="text-xs font-mono text-slate-400 uppercase tracking-wider mb-1">Occupied Bandwidth</p>
-          <p className="text-2xl sm:text-3xl font-black text-emerald-400">
-            {data.bandwidth_hz !== undefined && data.bandwidth_hz > 0 ? (
+        <Card className="col-span-1 md:col-span-2 lg:col-span-1 p-6 hover:floating-shadow transition-all duration-300">
+          <div className="flex items-center justify-start mb-4">
+            <div className="w-10 h-10 flex items-center justify-center bg-violet-950/50 text-violet-400 rounded-full text-lg">
+              5
+            </div>
+            <h3 className="text-geist font-weight-600 text-lg text-ink-faint mb-0 ml-3 uppercase">
+              Bandwidth
+            </h3>
+          </div>
+          <p className="text-2xl font-geist font-weight-600 text-violet-400">
+            {data.bandwidth_hz !== null && data.bandwidth_hz !== undefined && data.bandwidth_hz > 0 ? (
               data.bandwidth_hz >= 1e6
                 ? `${(data.bandwidth_hz / 1e6).toFixed(2)} MHz`
                 : `${(data.bandwidth_hz / 1e3).toFixed(1)} kHz`
             ) : (
-              'N/A'
+              '—'
             )}
           </p>
-          <p className="text-xs font-mono text-slate-400 mt-2">
-            Center: {data.center_frequency_hz !== undefined ? `${(data.center_frequency_hz / 1000).toFixed(1)} kHz` : '0 Hz'}
+          <p className="text-xs font-geist-mono text-ink-faint mt-2">
+            Occupied Bandwidth
           </p>
-        </div>
-      </div>
+        </Card>
+      </section>
 
       {/* Visualizations Panel */}
-      <div className="bg-slate-900/70 border border-slate-800 rounded-2xl p-6 backdrop-blur-xl shadow-xl">
+      <section className="bg-canvas-elevated hairline-border rounded-lg p-6 whisper-shadow">
         {/* Tab Headers */}
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-4 mb-6">
-          <div className="flex space-x-2">
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-hairline pb-6 mb-6">
+          <div className="flex space-x-3">
             <button
               onClick={() => setActiveTab('waveform')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-mono font-medium transition-all ${
+              className={`flex items-center space-x-2 px-4 py-2 rounded-sm font-geist font-weight-500 transition-all duration-200 ${
                 activeTab === 'waveform'
-                  ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                  ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/40'
+                  : 'text-ink-muted hover:text-ink hover:bg-canvas/90'
               }`}
             >
               🌊 Time-Domain Waveform
             </button>
             <button
               onClick={() => setActiveTab('psd')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-mono font-medium transition-all ${
+              className={`flex items-center space-x-2 px-4 py-2 rounded-sm font-geist font-weight-500 transition-all duration-200 ${
                 activeTab === 'psd'
-                  ? 'bg-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/40'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                  ? 'bg-fuchsia-500/20 text-fuchsia-400 border border-fuchsia-500/40'
+                  : 'text-ink-muted hover:text-ink hover:bg-canvas/90'
               }`}
             >
               📊 Power Spectral Density (PSD)
             </button>
             <button
               onClick={() => setActiveTab('constellation')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-mono font-medium transition-all ${
+              className={`flex items-center space-x-2 px-4 py-2 rounded-sm font-geist font-weight-500 transition-all duration-200 ${
                 activeTab === 'constellation'
-                  ? 'bg-blue-500/20 text-blue-300 border border-blue-500/40'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                  ? 'bg-blue-500/20 text-blue-400 border border-blue-500/40'
+                  : 'text-ink-muted hover:text-ink hover:bg-canvas/90'
               }`}
             >
               🌌 I/Q Constellation Diagram
             </button>
           </div>
 
-          <div className="text-xs font-mono text-slate-400">
+          <div className="text-xs font-geist-mono text-ink-faint">
             {data.num_samples.toLocaleString()} Samples • {data.duration_sec.toFixed(3)}s @ {(data.sample_rate / 1000).toFixed(0)} kHz
           </div>
         </div>
 
         {/* Tab 1: Waveform */}
         {activeTab === 'waveform' && (
-          <div className="space-y-2">
-            <div className="h-72 w-full">
+          <div className="space-y-4">
+            <div className="h-96 w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={waveformData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
@@ -200,14 +261,14 @@ export default function Results() {
                 </LineChart>
               </ResponsiveContainer>
             </div>
-            <p className="text-center text-xs font-mono text-slate-400">Real baseband amplitude representation (first {waveformData.length} downsampled points)</p>
+            <p className="text-center text-xs font-geist-mono text-ink-faint">Real baseband amplitude representation (first {waveformData.length} downsampled points)</p>
           </div>
         )}
 
         {/* Tab 2: PSD Spectrum */}
         {activeTab === 'psd' && (
-          <div className="space-y-2">
-            <div className="h-72 w-full">
+          <div className="space-y-4">
+            <div className="h-96 w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={psdData}>
                   <defs>
@@ -224,14 +285,14 @@ export default function Results() {
                 </AreaChart>
               </ResponsiveContainer>
             </div>
-            <p className="text-center text-xs font-mono text-slate-400">Welch Power Spectral Density over estimated frequency domain</p>
+            <p className="text-center text-xs font-geist-mono text-ink-faint">Welch Power Spectral Density over estimated frequency domain</p>
           </div>
         )}
 
         {/* Tab 3: Constellation */}
         {activeTab === 'constellation' && (
-          <div className="space-y-2">
-            <div className="h-72 w-full flex items-center justify-center">
+          <div className="space-y-4">
+            <div className="h-96 w-full flex items-center justify-center">
               {constellationData.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
                   <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
@@ -243,38 +304,40 @@ export default function Results() {
                   </ScatterChart>
                 </ResponsiveContainer>
               ) : (
-                <p className="text-slate-400 text-xs font-mono">Constellation points not available for this real signal.</p>
+                <p className="text-ink-faint text-xs font-geist-mono">Constellation points not available for this real signal.</p>
               )}
             </div>
-            <p className="text-center text-xs font-mono text-slate-400">Normalized complex baseband constellation scatter diagram</p>
+            <p className="text-center text-xs font-geist-mono text-ink-faint">Normalized complex baseband constellation scatter diagram</p>
           </div>
         )}
-      </div>
+      </section>
 
       {/* Signal Metadata Details Table */}
-      <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5">
-        <h3 className="font-semibold text-sm text-slate-300 font-mono mb-3">Extracted Signal Parameters</h3>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs font-mono">
-          <div className="p-3 bg-slate-950/60 rounded border border-slate-800">
-            <span className="text-slate-400 block">Sampling Rate</span>
-            <span className="text-slate-200 font-bold">{data.sample_rate.toLocaleString()} Hz</span>
+      <section className="bg-canvas-elevated hairline-border rounded-lg p-6 whisper-shadow">
+        <h2 className="text-geist font-weight-600 text-lg text-ink mb-6">
+          Extracted Signal Parameters
+        </h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs font-geist-mono">
+          <div className="p-4 bg-canvas-elevated/90 border border-hairline rounded-md">
+            <span className="block text-xs font-geist-mono font-weight-500 text-ink-faint">Sampling Rate</span>
+            <span className="block font-geist-mono font-weight-600 text-ink">{data.sample_rate.toLocaleString()} Hz</span>
           </div>
-          <div className="p-3 bg-slate-950/60 rounded border border-slate-800">
-            <span className="text-slate-400 block">Total Duration</span>
-            <span className="text-slate-200 font-bold">{data.duration_sec.toFixed(4)} s</span>
+          <div className="p-4 bg-canvas-elevated/90 border border-hairline rounded-md">
+            <span className="block text-xs font-geist-mono font-weight-500 text-ink-faint">Total Duration</span>
+            <span className="block font-geist-mono font-weight-600 text-ink">{data.duration_sec.toFixed(4)} s</span>
           </div>
-          <div className="p-3 bg-slate-950/60 rounded border border-slate-800">
-            <span className="text-slate-400 block">Total Samples</span>
-            <span className="text-slate-200 font-bold">{data.num_samples.toLocaleString()}</span>
+          <div className="p-4 bg-canvas-elevated/90 border border-hairline rounded-md">
+            <span className="block text-xs font-geist-mono font-weight-500 text-ink-faint">Total Samples</span>
+            <span className="block font-geist-mono font-weight-600 text-ink">{data.num_samples.toLocaleString()}</span>
           </div>
-          <div className="p-3 bg-slate-950/60 rounded border border-slate-800">
-            <span className="text-slate-400 block">3dB Bandwidth</span>
-            <span className="text-slate-200 font-bold">
+          <div className="p-4 bg-canvas-elevated/90 border border-hairline rounded-md">
+            <span className="block text-xs font-geist-mono font-weight-500 text-ink-faint">3dB Bandwidth</span>
+            <span className="block font-geist-mono font-weight-600 text-ink">
               {data.bandwidth_3db_hz !== undefined ? `${(data.bandwidth_3db_hz / 1000).toFixed(1)} kHz` : 'N/A'}
             </span>
           </div>
         </div>
-      </div>
+      </section>
     </div>
   );
 }

@@ -30,10 +30,18 @@ export function ThemeToggle() {
     <button
       onClick={cycleTheme}
       title={`Current theme: ${theme} (Click to switch)`}
-      className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 text-xs font-mono text-slate-300 transition-all hover:border-cyan-500/50"
+      className="flex items-center space-x-2 px-3 py-1.5 rounded-sm bg-panel/80 backdrop-blur-sm hairline-border hover:bg-panel/90 transition-all duration-200 font-geist-mono font-weight-500 text-text hover:text-text/80"
     >
-      <span>{theme === 'dark' ? '🌙' : theme === 'light' ? '☀️' : '💻'}</span>
-      <span className="capitalize">{theme}</span>
+      <span className="flex h-4 w-4 items-center justify-center">
+        {theme === 'dark' ? (
+          <span className="text-cyan-400">🌙</span>
+        ) : theme === 'light' ? (
+          <span className="text-yellow-400">☀️</span>
+        ) : (
+          <span className="text-blue-400">💻</span>
+        )}
+      </span>
+      <span className="hidden md:inline">{theme === 'dark' ? 'Dark' : theme === 'light' ? 'Light' : 'System'}</span>
     </button>
   );
 }

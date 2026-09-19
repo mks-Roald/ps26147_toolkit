@@ -37,6 +37,7 @@ export function createSDRWebSocket(
   const wsUrl = baseUrl.replace(/^http/, "ws") + "/stream/live";
 
   const socket = new WebSocket(wsUrl);
+  let intentionalClose = false;
 
   socket.onopen = () => {
     if (onOpen) onOpen();
@@ -45,15 +46,12 @@ export function createSDRWebSocket(
   socket.onmessage = (event) => {
     try {
       const data = JSON.parse(event.data);
-      if (data.type === "sdr_frame") {
-        onFrame(data);
-      }
-    } catch {
-      // Failed to parse frame
-    }
+      if (data.type === "sdr_frame") onFrame(data);
+    } catch {}
   };
 
   socket.onerror = (err) => {
+    if (intentionalClose) return;
     if (onError) onError(err);
   };
 
@@ -80,6 +78,7 @@ export function createSDRWebSocket(
   };
 
   const close = () => {
+    intentionalClose = true;
     socket.close();
   };
 
