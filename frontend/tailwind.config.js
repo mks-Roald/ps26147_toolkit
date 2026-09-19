@@ -78,6 +78,21 @@ module.exports = {
         '3xl': '64px',
         '4xl': '96px',
         'section': '128px',
+        // Added numeric keys for the classes we are using in @apply
+        '1.5': '6px',
+        '2': '8px',
+        '3': '12px',
+        '4': '16px',
+        '6': '24px',
+        '8': '32px',
+        '16': '64px',
+      },
+      fontSize: {
+        '3xl': '1.875rem', // 30px
+        'lg': '1.125rem',  // 18px
+      },
+      maxWidth: {
+        '7xl': '80rem', // 1280px
       },
       typography: ({ theme }) => ({
         DEFAULT: {
@@ -239,7 +254,5 @@ module.exports = {
       },
     },
   },
-  plugins: [
-    require('@tailwindcss/typography'),
-  ],
+  plugins: [],
 };
