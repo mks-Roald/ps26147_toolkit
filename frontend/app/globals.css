@@ -2,22 +2,20 @@
 
 @theme {
   /* Colors */
-  --color-canvas-elevated: #12161f;
   --color-canvas: #0a0e14;
+  --color-canvas-elevated: #12161f;
+  --color-panel: #12161f;
   --color-ink: #e6edf3;
   --color-ink-faint: #545f6d;
   --color-ink-muted: #8b98a5;
+  --color-on-primary: #e6edf3;
   --color-border: #1e2530;
+  --color-hairline: #1e2530;
   --color-accent: #3dd9c4;
   --color-blue: #4fc3f7;
   --color-magenta: #f355da;
   --color-amber: #f5a623;
   --color-danger: #f0546b;
-  --color-hairline: #1e2530;
-  --color-panel: #12161f;
-  --color-bg: #0a0e14;
-  --color-on-primary: #e6edf3;
-  --color-text-faint: #545f6d;
 
   /* Radius */
   --radius-none: 0px;
@@ -33,15 +31,7 @@
   --font-geist-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
-.duration-150 {
-  transition-duration: 150ms;
-}
-
-.outline-none {
-  outline: none;
-}
-
-/* Base styles */
+/* ---------- Base ---------- */
 html {
   color-scheme: dark light;
   font-feature-settings: "rlig" 1, "calt" 1;
@@ -56,44 +46,18 @@ body {
   color: var(--color-ink);
 }
 
-/* Utility classes */
-.glass-panel {
-  background: rgba(18, 22, 31, 0.65);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid var(--color-border);
-}
-
-.dark .glass-panel {
-  background: rgba(10, 14, 20, 0.75);
-  border: 1px solid rgba(61, 217, 196, 0.15);
-  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
-}
-
-.glow-cyan {
-  box-shadow: 0 0 20px rgba(61, 217, 196, 0.25);
-}
-
-.glow-magenta {
-  box-shadow: 0 0 20px rgba(243, 85, 218, 0.25);
-}
-
-@utility border-hairline {
-  border-width: 1px;
-  border-color: var(--color-hairline);
-}
-
+/* ---------- Custom utilities (real Tailwind v4 utilities via @utility) ---------- */
 @utility hairline-border {
   border-width: 1px;
   border-color: var(--color-border);
 }
 
 @utility whisper-shadow {
-  box-shadow: 0px 1px 1px rgba(0,0,0,0.04);
+  box-shadow: 0px 1px 1px rgba(0, 0, 0, 0.04);
 }
 
 @utility floating-shadow {
-  box-shadow: 0px 2px 2px rgba(0,0,0,0.04), 0px 8px 16px -4px rgba(0,0,0,0.04);
+  box-shadow: 0px 2px 2px rgba(0, 0, 0, 0.04), 0px 8px 16px -4px rgba(0, 0, 0, 0.04);
 }
 
 @utility transition-all {
@@ -105,31 +69,11 @@ body {
 @utility focus-ring-2 {
   --tw-ring-offset-shadow: var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color);
   --tw-ring-shadow: var(--tw-ring-inset) 0 0 0 calc(2px + var(--tw-ring-offset-width)) var(--tw-ring-color);
-  box-shadow: var(--tw-ring-offset-shadow) var(--tw-ring-shadow) var(--tw-ring-shadow, 0 0 0) var(--tw-ring-inset-shadow, 0 0 0);
+  box-shadow: var(--tw-ring-offset-shadow) var(--tw-ring-shadow);
 }
 
 @utility focus-ring-blue {
   --tw-ring-color: rgb(79 195 247 / 0.5);
-}
-
-@utility bg-color-canvas {
-  background-color: var(--color-canvas);
-}
-
-@utility bg-color-canvas-elevated {
-  background-color: var(--color-canvas-elevated);
-}
-
-@utility text-color-ink {
-  color: var(--color-ink);
-}
-
-@utility text-color-ink-faint {
-  color: var(--color-ink-faint);
-}
-
-@utility border-blue {
-  border-color: var(--color-blue);
 }
 
 @utility rounded-pill {
@@ -140,18 +84,31 @@ body {
   font-family: var(--font-geist);
 }
 
-/* Button base styles */
+/* Font weight utilities used across the codebase (not standard Tailwind names) */
+@utility font-weight-400 {
+  font-weight: 400;
+}
+
+@utility font-weight-500 {
+  font-weight: 500;
+}
+
+@utility font-weight-600 {
+  font-weight: 600;
+}
+
+/* Button base */
 @utility btn-base {
   font-weight: 500;
   @apply transition-all duration-150 hover:scale-[1.02] active:scale-[0.98];
 }
 
 .btn-primary {
-  @apply btn-base text-color-ink rounded-pill px-6 py-2 bg-canvas hover:bg-[var(--color-canvas)/0.9];
+  @apply btn-base bg-canvas text-ink rounded-pill px-6 py-2 hover:bg-canvas/90;
 }
 
 .btn-secondary {
-  @apply btn-base bg-color-canvas-elevated text-color-ink border-hairline rounded-pill px-6 py-2 hover:bg-[var(--color-canvas-elevated)/0.9];
+  @apply btn-base bg-canvas-elevated text-ink hairline-border rounded-pill px-6 py-2 hover:bg-canvas-elevated/90;
 }
 
 .btn-sm {
@@ -162,22 +119,22 @@ body {
   @apply px-8 py-3 rounded-md;
 }
 
-/* Input base styles */
+/* Input base */
 .input-base {
-  @apply bg-color-canvas-elevated text-color-ink border-hairline rounded-sm px-4 py-2 font-geist focus:outline-none focus-ring-2 focus-ring-blue focus:border-blue transition-all duration-150;
+  @apply bg-canvas-elevated text-ink hairline-border rounded-sm px-4 py-2 font-geist focus:outline-none focus-ring-2 focus-ring-blue focus:border-blue transition-all duration-150;
 }
 
 .input-base::placeholder {
-  @apply text-color-ink-faint;
+  @apply text-ink-faint;
 }
 
-/* Card base styles */
+/* Card base */
 .card-base {
-  @apply bg-color-canvas-elevated hairline-border rounded-md whisper-shadow p-6 transition-all duration-150 hover:floating-shadow;
+  @apply bg-canvas-elevated hairline-border rounded-md whisper-shadow p-6 transition-all duration-150 hover:floating-shadow;
 }
 
 .card-base:hover {
-  @apply bg-color-canvas-elevated/90;
+  @apply bg-canvas-elevated/90;
 }
 
 /* Layout containers */
@@ -190,9 +147,25 @@ body {
 }
 
 .section-title {
-  @apply text-3xl font-geist font-[600] tracking-tighter mb-8;
+  @apply text-3xl font-geist font-weight-600 tracking-tighter mb-8;
 }
 
 .section-subtitle {
-  @apply text-lg font-geist font-[500] mb-6;
+  @apply text-lg font-geist font-weight-500 mb-6;
+}
+
+/* Decorative extras still referenced in some pages */
+.glass-panel {
+  background: rgba(18, 22, 31, 0.65);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--color-border);
+}
+
+.glow-cyan {
+  box-shadow: 0 0 20px rgba(61, 217, 196, 0.25);
+}
+
+.glow-magenta {
+  box-shadow: 0 0 20px rgba(243, 85, 218, 0.25);
 }
