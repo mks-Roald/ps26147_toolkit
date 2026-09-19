@@ -248,8 +248,8 @@ export default function UploadZone({
 
       {/* Error display */}
       {error && (
-        <div className="mt-6 p-4 bg-ee0000/40 border border-c50000/50 rounded-lg text-sm text-ee0000 space-y-2">
-          <p className="font-semibold text-ee0000">Processing Failed</p>
+        <div className="mt-6 p-4 bg-danger/40 border border-danger/50 rounded-lg text-sm text-danger space-y-2">
+          <p className="font-semibold text-danger">Processing Failed</p>
           <p className="text-xs font-geist-mono">{error}</p>
         </div>
       )}
