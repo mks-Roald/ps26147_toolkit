@@ -43,7 +43,7 @@ export default function HomePage() {
       {/* Supported Modulations */}
       <Card className="p-6">
         <div className="space-y-4">
-          <h3 className="text-geist font-weight-600 text-lg text-ink">
+          <h3 className="font-geist font-weight-600 text-lg text-ink">
             Supported Modulations
           </h3>
           <div className="flex flex-wrap gap-2">

@@ -104,7 +104,7 @@ export default function Results() {
             <div className="w-10 h-10 flex items-center justify-center bg-cyan-950/50 text-cyan-400 rounded-full text-lg">
               1
             </div>
-            <h3 className="text-geist font-weight-600 text-lg text-ink-faint mb-0 ml-3 uppercase">
+            <h3 className="font-geist font-weight-600 text-lg text-ink-faint mb-0 ml-3 uppercase">
               Modulation
             </h3>
           </div>
@@ -122,7 +122,7 @@ export default function Results() {
             <div className="w-10 h-10 flex items-center justify-center bg-blue-950/50 text-blue-400 rounded-full text-lg">
               2
             </div>
-            <h3 className="text-geist font-weight-600 text-lg text-ink-faint mb-0 ml-3 uppercase">
+            <h3 className="font-geist font-weight-600 text-lg text-ink-faint mb-0 ml-3 uppercase">
               SNR
             </h3>
           </div>
@@ -140,7 +140,7 @@ export default function Results() {
             <div className="w-10 h-10 flex items-center justify-center bg-fuchsia-950/50 text-fuchsia-400 rounded-full text-lg">
               3
             </div>
-            <h3 className="text-geist font-weight-600 text-lg text-ink-faint mb-0 ml-3 uppercase">
+            <h3 className="font-geist font-weight-600 text-lg text-ink-faint mb-0 ml-3 uppercase">
               Baud Rate
             </h3>
           </div>
@@ -162,7 +162,7 @@ export default function Results() {
             <div className="w-10 h-10 flex items-center justify-center bg-emerald-950/50 text-emerald-400 rounded-full text-lg">
               4
             </div>
-            <h3 className="text-geist font-weight-600 text-lg text-ink-faint mb-0 ml-3 uppercase">
+            <h3 className="font-geist font-weight-600 text-lg text-ink-faint mb-0 ml-3 uppercase">
               Center Frequency
             </h3>
           </div>
@@ -186,7 +186,7 @@ export default function Results() {
             <div className="w-10 h-10 flex items-center justify-center bg-violet-950/50 text-violet-400 rounded-full text-lg">
               5
             </div>
-            <h3 className="text-geist font-weight-600 text-lg text-ink-faint mb-0 ml-3 uppercase">
+            <h3 className="font-geist font-weight-600 text-lg text-ink-faint mb-0 ml-3 uppercase">
               Bandwidth
             </h3>
           </div>
@@ -314,7 +314,7 @@ export default function Results() {
 
       {/* Signal Metadata Details Table */}
       <section className="bg-canvas-elevated hairline-border rounded-lg p-6 whisper-shadow">
-        <h2 className="text-geist font-weight-600 text-lg text-ink mb-6">
+        <h2 className="font-geist font-weight-600 text-lg text-ink mb-6">
           Extracted Signal Parameters
         </h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs font-geist-mono">

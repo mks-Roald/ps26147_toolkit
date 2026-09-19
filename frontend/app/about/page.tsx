@@ -51,7 +51,7 @@ export default function About() {
                 <div className="w-10 h-10 flex items-center justify-center bg-cyan-950/50 text-cyan-400 rounded-full text-lg">
                   {idx + 1}
                 </div>
-                <h3 className="text-geist font-weight-600 text-lg text-ink mb-0 ml-3">{phase.title}</h3>
+                <h3 className="font-geist font-weight-600 text-lg text-ink mb-0 ml-3">{phase.title}</h3>
               </div>
               <p className="text-ink-faint text-sm font-geist-mono leading-relaxed">
                 {phase.description}
@@ -61,8 +61,8 @@ export default function About() {
         </section>
 
         {/* API Contract */}
-        <section className="bg-canvas-elevated hairline-border rounded-lg p-6 whisper-shadow">
-          <h2 className="text-geist font-weight-600 text-lg text-ink mb-4">
+        <section className="bg-canvas-elevated border-hairline rounded-lg p-6 whisper-shadow">
+          <h2 className="font-geist font-weight-600 text-lg text-ink mb-4">
             Backend REST API Contract
           </h2>
           <div className="space-y-3 text-xs font-geist-mono text-ink-faint">

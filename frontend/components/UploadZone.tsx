@@ -163,7 +163,7 @@ export default function UploadZone({
       </div>
 
       {/* Configuration Card */}
-      <div className="bg-panel hairline-border rounded-lg p-6 whisper-shadow">
+      <div className="bg-panel border-hairline rounded-lg p-6 whisper-shadow">
         <h3 className="text-ink font-geist font-weight-600 text-lg mb-4">Configuration</h3>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

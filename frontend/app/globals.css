@@ -78,9 +78,9 @@ body {
   box-shadow: 0 0 20px rgba(243, 85, 218, 0.25);
 }
 
-@utility hairline-border {
+@utility border-hairline {
   border-width: 1px;
-  border-color: var(--color-border);
+  border-color: var(--color-hairline);
 }
 
 @utility whisper-shadow {
@@ -142,11 +142,11 @@ body {
 }
 
 .btn-primary {
-  @apply btn-base bg-color-canvas text-color-ink rounded-pill px-6 py-2 hover:bg-color-canvas/90;
+  @apply btn-base text-color-ink rounded-pill px-6 py-2 bg-canvas hover:bg-[var(--color-canvas)/0.9];
 }
 
 .btn-secondary {
-  @apply btn-base bg-color-canvas-elevated text-color-ink hairline-border rounded-pill px-6 py-2 hover:bg-color-canvas-elevated/90;
+  @apply btn-base bg-color-canvas-elevated text-color-ink border-hairline rounded-pill px-6 py-2 hover:bg-[var(--color-canvas-elevated)/0.9];
 }
 
 .btn-sm {
@@ -159,7 +159,7 @@ body {
 
 /* Input base styles */
 .input-base {
-  @apply bg-color-canvas-elevated text-color-ink hairline-border rounded-sm px-4 py-2 font-geist focus:outline-none focus-ring-2 focus-ring-blue focus:border-blue transition-all duration-150;
+  @apply bg-color-canvas-elevated text-color-ink border-hairline rounded-sm px-4 py-2 font-geist focus:outline-none focus-ring-2 focus-ring-blue focus:border-blue transition-all duration-150;
 }
 
 .input-base::placeholder {

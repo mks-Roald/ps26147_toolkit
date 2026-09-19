@@ -119,7 +119,7 @@ export default function LiveStreamPage() {
             <button
               onClick={togglePause}
               disabled={!isConnected}
-              className={`flex items-center space-x-2 px-5 py-2.5 rounded-pill font-geist font-weight-500 transition-all duration-200 hover:bg-ink/90 ${isPaused ? 'bg-ink text-on-primary' : 'bg-canvas-elevated text-ink hairline-border'}`}
+              className={`flex items-center space-x-2 px-5 py-2.5 rounded-pill font-geist font-weight-500 transition-all duration-200 hover:bg-ink/90 ${isPaused ? 'bg-ink text-on-primary' : 'bg-canvas-elevated text-ink border-hairline'}`}
             >
               <span>{isPaused ? '▶ Resume' : '⏸ Pause'}</span>
             </button>
@@ -135,7 +135,7 @@ export default function LiveStreamPage() {
             <div className="w-10 h-10 flex items-center justify-center bg-cyan-950/50 text-cyan-400 rounded-full text-lg">
               1
             </div>
-            <h3 className="text-geist font-weight-600 text-lg text-ink mb-0 ml-3">Live Modulation</h3>
+            <h3 className="font-geist font-weight-600 text-lg text-ink mb-0 ml-3">Live Modulation</h3>
           </div>
           <p className="text-2xl font-geist font-weight-600 text-cyan-400">
             {currentFrame?.detected_modulation || '—'}
@@ -151,7 +151,7 @@ export default function LiveStreamPage() {
             <div className="w-10 h-10 flex items-center justify-center bg-blue-950/50 text-blue-400 rounded-full text-lg">
               2
             </div>
-            <h3 className="text-geist font-weight-600 text-lg text-ink mb-0 ml-3">Channel SNR</h3>
+            <h3 className="font-geist font-weight-600 text-lg text-ink mb-0 ml-3">Channel SNR</h3>
           </div>
           <p className="text-2xl font-geist font-weight-600 text-blue-400">
             {currentFrame ? `${currentFrame.snr_db.toFixed(1)} dB` : '—'}
@@ -165,7 +165,7 @@ export default function LiveStreamPage() {
             <div className="w-10 h-10 flex items-center justify-center bg-fuchsia-950/50 text-fuchsia-400 rounded-full text-lg">
               3
             </div>
-            <h3 className="text-geist font-weight-600 text-lg text-ink mb-0 ml-3">Symbol Rate</h3>
+            <h3 className="font-geist font-weight-600 text-lg text-ink mb-0 ml-3">Symbol Rate</h3>
           </div>
           <p className="text-2xl font-geist font-weight-600 text-fuchsia-400">
             {currentFrame ? `${(currentFrame.baud_rate / 1000).toFixed(1)} kBd` : '—'}
@@ -181,7 +181,7 @@ export default function LiveStreamPage() {
             <div className="w-10 h-10 flex items-center justify-center bg-emerald-950/50 text-emerald-400 rounded-full text-lg">
               4
             </div>
-            <h3 className="text-geist font-weight-600 text-lg text-ink mb-0 ml-3">Frame Counter</h3>
+            <h3 className="font-geist font-weight-600 text-lg text-ink mb-0 ml-3">Frame Counter</h3>
           </div>
           <p className="text-2xl font-geist font-weight-600 text-emerald-400">
             #{currentFrame?.frame_idx ?? 0}
@@ -196,7 +196,7 @@ export default function LiveStreamPage() {
         <Card className="col-span-1 lg:col-span-1 p-6">
           <div className="space-y-4">
             <h3 className="flex items-center justify-between">
-              <span className="text-geist font-weight-600 text-lg text-ink">🌌 I/Q Constellation Diagram</span>
+              <span className="font-geist font-weight-600 text-lg text-ink">🌌 I/Q Constellation Diagram</span>
               <span className="text-xs font-geist-mono text-ink-faint">{constellationData.length} live symbols</span>
             </h3>
             <div className="h-96 w-full">
@@ -217,7 +217,7 @@ export default function LiveStreamPage() {
         <Card className="col-span-1 lg:col-span-1 p-6">
           <div className="space-y-4">
             <h3 className="flex items-center justify-between">
-              <span className="text-geist font-weight-600 text-lg text-ink">🌊 Live Oscilloscope Waveform</span>
+              <span className="font-geist font-weight-600 text-lg text-ink">🌊 Live Oscilloscope Waveform</span>
               <span className="text-xs font-geist-mono text-ink-faint">Real I-Channel</span>
             </h3>
             <div className="h-96 w-full">
@@ -238,7 +238,7 @@ export default function LiveStreamPage() {
         <Card className="lg:col-span-2 p-6">
           <div className="space-y-4">
             <h3 className="flex items-center justify-between">
-              <span className="text-geist font-weight-600 text-lg text-ink">📊 Live Power Spectral Density (PSD)</span>
+              <span className="font-geist font-weight-600 text-lg text-ink">📊 Live Power Spectral Density (PSD)</span>
               <span className="text-xs font-geist-mono text-ink-faint">Welch FFT Spectrum (dB/Hz)</span>
             </h3>
             <div className="h-80 w-full">
@@ -263,8 +263,8 @@ export default function LiveStreamPage() {
       </section>
 
       {/* Interactive Stream Transmitter Controls */}
-      <section className="bg-canvas-elevated hairline-border rounded-lg p-6 whisper-shadow">
-        <h2 className="text-geist font-weight-600 text-lg text-ink mb-6">
+      <section className="bg-canvas-elevated border-hairline rounded-lg p-6 whisper-shadow">
+        <h2 className="font-geist font-weight-600 text-lg text-ink mb-6">
           SDR Transmitter & Channel Impairment Simulator
         </h2>
 
