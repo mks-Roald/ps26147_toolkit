@@ -13,6 +13,11 @@
   --color-magenta: #f355da;
   --color-amber: #f5a623;
   --color-danger: #f0546b;
+  --color-hairline: #1e2530;
+  --color-panel: #12161f;
+  --color-bg: #0a0e14;
+  --color-on-primary: #e6edf3;
+  --color-text-faint: #545f6d;
 
   /* Radius */
   --radius-none: 0px;
