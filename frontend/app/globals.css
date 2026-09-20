@@ -31,6 +31,24 @@
   --font-geist-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
+/* Light mode overrides */
+html:not(.dark) {
+  --color-canvas: #ffffff;
+  --color-canvas-elevated: #f8fafc;
+  --color-panel: #f1f5f9;
+  --color-ink: #0f172a;
+  --color-ink-faint: #64748b;
+  --color-ink-muted: #94a3b8;
+  --color-on-primary: #ffffff;
+  --color-border: #e2e8f0;
+  --color-hairline: #e2e8f0;
+  --color-accent: #0ea5e9;
+  --color-blue: #3b82f6;
+  --color-magenta: #ec4899;
+  --color-amber: #fbbf24;
+  --color-danger: #ef4444;
+}
+
 /* ---------- Base ---------- */
 html {
   color-scheme: dark light;
