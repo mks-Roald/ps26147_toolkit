@@ -61,7 +61,7 @@ export default function About() {
       {/* API Contract */}
       <section className="bg-canvas-elevated border-hairline rounded-lg p-6 whisper-shadow">
         <h2 className="font-geist font-weight-600 text-lg text-ink mb-4">
-          Backend REST API Contract
+          Backend REST API Contract (FastAPI)
         </h2>
         <div className="space-y-3 text-xs font-geist-mono text-ink-faint">
           <p>
@@ -85,8 +85,8 @@ export default function About() {
 
       {/* CTA */}
       <div className="text-center pt-8">
-        <Link href="/" className="inline-flex items-center space-x-2 px-6 py-3 rounded-pill bg-ink text-on-primary font-geist font-weight-500 hover:bg-ink/90 transition-all duration-200">
-          <span>⚡ Start Analyzing Signals</span>
+        <Link href="/" className="btn-primary">
+          Start Analyzing Signals
         </Link>
       </div>
     </div>
