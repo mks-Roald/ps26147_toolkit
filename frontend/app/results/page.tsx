@@ -106,6 +106,53 @@ export default function Results() {
             >
               <span>Analyse another Signal</span>
             </Link>
+            {!editingSampleRate && data && (
+              <>
+                <button
+                  onClick={() => {
+                    const json = JSON.stringify(data, null, 2);
+                    const blob = new Blob([json], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'signal-analysis.json';
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  }}
+                  className="inline-flex items-center space-x-2 px-5 py-2.5 rounded-pill font-geist font-weight-500 transition-all duration-200 hover:bg-ink/90 bg-ink text-on-primary"
+                >
+                  <span>💾 Download JSON</span>
+                </button>
+                <button
+                  onClick={() => {
+                    if (!data) return;
+                    const rows = [
+                      ['Parameter', 'Value'],
+                      ['Modulation', data.modulation ?? ''],
+                      ['Confidence (%)', ((data.confidence ?? 0) * 100).toFixed(1)],
+                      ['SNR (dB)', data.snr_db !== null && data.snr_db !== undefined ? data.snr_db.toFixed(1) : ''],
+                      ['Baud Rate', data.baud_rate !== null && data.baud_rate !== undefined && data.baud_rate > 0 ? (data.baud_rate >= 1000 ? `${(data.baud_rate / 1000).toFixed(2)} kBd` : `${data.baud_rate.toFixed(1)} Bd`) : ''],
+                      ['Center Frequency', data.center_frequency_hz !== null && data.center_frequency_hz !== undefined ? (Math.abs(data.center_frequency_hz) >= 1e6 ? `${(data.center_frequency_hz / 1e6).toFixed(2)} MHz` : `${(data.center_frequency_hz / 1e3).toFixed(1)} kHz`) : ''],
+                      ['Bandwidth', data.bandwidth_hz !== null && data.bandwidth_hz !== undefined && data.bandwidth_hz > 0 ? (data.bandwidth_hz >= 1e6 ? `${(data.bandwidth_hz / 1e6).toFixed(2)} MHz` : `${(data.bandwidth_hz / 1e3).toFixed(1)} kHz`) : ''],
+                      ['Sample Rate (Hz)', data.sample_rate.toLocaleString()],
+                      ['Duration (s)', data.duration_sec.toFixed(4)],
+                      ['Total Samples', data.num_samples.toLocaleString()],
+                    ];
+                    const csvContent = rows.map(e => e.join(',')).join('\n');
+                    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'signal-summary.csv';
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  }}
+                  className="inline-flex items-center space-x-2 px-5 py-2.5 rounded-pill font-geist font-weight-500 transition-all duration-200 hover:bg-ink/90 bg-ink text-on-primary"
+                >
+                  <span>📥 Download CSV</span>
+                </button>
+              </>
+            )}
           </div>
         </div>
       </header>
