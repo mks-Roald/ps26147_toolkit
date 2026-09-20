@@ -44,6 +44,19 @@ export default function Results() {
     }
   }, [router]);
 
+  // Handle sample rate changes from session storage
+  useEffect(() => {
+    const storedSampleRate = sessionStorage.getItem('lastSampleRate');
+    if (storedSampleRate) {
+      const parsed = parseInt(storedSampleRate, 10);
+      if (!isNaN(parsed) && parsed > 0) {
+        setData(prev => ({ ...prev, sample_rate: parsed }));
+        // Clear the stored value to avoid re-applying on every render
+        sessionStorage.removeItem('lastSampleRate');
+      }
+    }
+  }, []);
+
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center py-20 space-y-4">
@@ -329,7 +342,12 @@ export default function Results() {
                   onChange={(e) => {
                     const value = Number(e.target.value);
                     if (!isNaN(value) && value > 0) {
+                      // Update local state
                       setData(prev => ({ ...prev, sample_rate: value }));
+                      // Store in sessionStorage for passing back to upload page
+                      sessionStorage.setItem('lastSampleRate', String(value));
+                      // Navigate back to upload page with sample rate as query parameter
+                      router.push(`/?sampleRate=${value}`);
                     }
                   }}
                   min="1"
