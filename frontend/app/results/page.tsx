@@ -90,7 +90,7 @@ export default function Results() {
               href="/"
               className="flex items-center space-x-3 px-6 py-3 rounded-pill font-geist font-weight-500 transition-all duration-200 hover:bg-ink/90 bg-ink text-on-primary"
             >
-              <span>+ Analyze Another Signal</span>
+              <span>analyse another signals</span>
             </Link>
           </div>
         </div>
@@ -250,7 +250,7 @@ export default function Results() {
         {/* Tab 1: Waveform */}
         {activeTab === 'waveform' && (
           <div className="space-y-4">
-            <div className="h-96 w-full">
+            <div className="h-96 w-full bg-canvas-elevated">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={waveformData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
@@ -268,9 +268,9 @@ export default function Results() {
         {/* Tab 2: PSD Spectrum */}
         {activeTab === 'psd' && (
           <div className="space-y-4">
-            <div className="h-96 w-full">
+            <div className="h-96 w-full bg-canvas-elevated">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={psdData}>
+                <AreaChart data={psdData} style={{ backgroundColor: 'transparent' }}>
                   <defs>
                     <linearGradient id="psdGrad" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#f355da" stopOpacity={0.4} />
@@ -278,8 +278,8 @@ export default function Results() {
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                  <XAxis dataKey="freq" tick={{ fill: '#64748b', fontSize: 10 }} label={{ value: 'Frequency (Hz)', position: 'insideBottom', offset: -5, fill: '#64748b', fontSize: 10 }} />
-                  <YAxis tick={{ fill: '#64748b', fontSize: 10 }} label={{ value: 'dB/Hz', angle: -90, position: 'insideLeft', fill: '#64748b', fontSize: 10 }} />
+                  <XAxis dataKey="freq" tick={{ fill: '#64748b', fontSize: 10 }} label={{ value: 'Frequency (Hz)', position: 'insideBottom', offset: -5, fill: '#64748b', fontSize: 10 }} axisLine={{ stroke: '#64748b' }} />
+                  <YAxis tick={{ fill: '#64748b', fontSize: 10 }} label={{ value: 'dB/Hz', angle: -90, position: 'insideLeft', fill: '#64748b', fontSize: 10 }} axisLine={{ stroke: '#64748b' }} />
                   <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', fontSize: '12px', fontFamily: 'monospace' }} />
                   <Area type="monotone" dataKey="psd" name="PSD (dB)" stroke="#f355da" strokeWidth={1.5} fillOpacity={1} fill="url(#psdGrad)" isAnimationActive={false} />
                 </AreaChart>
@@ -295,7 +295,7 @@ export default function Results() {
             <div className="h-96 w-full flex items-center justify-center">
               {constellationData.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
-                  <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
+                  <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }} style={{ backgroundColor: 'transparent' }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
                     <XAxis type="number" dataKey="i" name="In-Phase (I)" domain={[-2, 2]} tick={{ fill: '#64748b', fontSize: 10 }} />
                     <YAxis type="number" dataKey="q" name="Quadrature (Q)" domain={[-2, 2]} tick={{ fill: '#64748b', fontSize: 10 }} />
