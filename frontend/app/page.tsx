@@ -1,11 +1,26 @@
 'use client';
 
+import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { useState } from 'react';
 import UploadZone from '@/components/UploadZone';
 import  Card  from '@/components/base/Card';
 
 export default function HomePage() {
   const router = useRouter();
+  const [sampleRate, setSampleRate] = useState<number | undefined>(undefined);
+
+  // Read sampleRate from query param on mount
+  useEffect(() => {
+    const params = new URLSearchParams(router.search);
+    const sr = params.get('sampleRate');
+    if (sr) {
+      const parsed = parseInt(sr, 10);
+      if (!isNaN(parsed) && parsed > 0) {
+        setSampleRate(parsed);
+      }
+    }
+  }, [router.search]);
 
   const modulationOptions = [
     { label: 'BPSK', value: 'BPSK' },
@@ -38,6 +53,8 @@ export default function HomePage() {
         onSuccess={(result) => {
           router.push('/results');
         }}
+        sampleRate={sampleRate}
+        setSampleRate={setSampleRate}
       />
 
       {/* Supported Modulations */}
