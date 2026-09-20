@@ -15,7 +15,7 @@ import {
   Area,
 } from 'recharts';
 import { createSDRWebSocket, SDRFrame, SDRStreamControls } from '@/services/stream';
-import Card from '@/components/base/Button';
+import Card from '@/components/base/Card';
 
 export default function LiveStreamPage() {
   const [isConnected, setIsConnected] = useState(false);
