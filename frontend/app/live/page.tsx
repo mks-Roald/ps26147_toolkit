@@ -277,7 +277,7 @@ export default function LiveStreamPage() {
             <select
               value={controls.modulation}
               onChange={(e) => handleControlChange('modulation', e.target.value)}
-              disabled={isConnected}
+              disabled={false}
               className="w-full bg-canvas-elevated border border-hairline rounded-md px-4 py-2 text-sm font-geist-mono text-ink focus:outline-none focus:ring-2 focus-ring-blue focus:border-blue transition-colors duration-200"
             >
               <option value="BPSK">BPSK</option>
