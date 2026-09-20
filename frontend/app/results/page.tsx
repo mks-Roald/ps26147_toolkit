@@ -339,7 +339,23 @@ export default function Results() {
                 <input
                   type="number"
                   value={data.sample_rate}
-                  onChange={(e) => {
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      const value = Number(e.target.value);
+                      if (!isNaN(value) && value > 0) {
+                        // Update local state
+                        setData(prev => ({ ...prev, sample_rate: value }));
+                        // Store in sessionStorage for passing back to upload page
+                        sessionStorage.setItem('lastSampleRate', String(value));
+                        // Navigate back to upload page with sample rate as query parameter
+                        router.push(`/?sampleRate=${value}`);
+                      }
+                    }
+                    if (e.key === "Escape") {
+                      setEditingSampleRate(false); // cancel edit
+                    }
+                  }}
+                  onBlur={(e) => {
                     const value = Number(e.target.value);
                     if (!isNaN(value) && value > 0) {
                       // Update local state
