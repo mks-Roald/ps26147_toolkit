@@ -88,7 +88,7 @@ export default function Results() {
           <div className="flex items-center space-x-4">
             <Link
               href="/"
-              className="flex items-center space-x-3 px-6 py-3 rounded-pill font-geist font-weight-500 transition-all duration-200 hover:bg-ink/90 bg-ink text-on-primary"
+              className="flex items-center space-x-3 px-6 py-3 rounded-pill font-geist font-weight-500 transition-all duration-200 hover:bg-ink/90 bg-ink text-ink"
             >
               <span>analyse another signals</span>
             </Link>
