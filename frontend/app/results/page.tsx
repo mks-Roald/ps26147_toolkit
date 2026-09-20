@@ -339,6 +339,7 @@ export default function Results() {
                 <input
                   type="number"
                   value={data.sample_rate}
+                  onChange={(e) => setData({ ...data, sample_rate: Number(e.target.value) })}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       const value = Number(e.target.value);
