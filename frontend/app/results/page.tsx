@@ -26,6 +26,7 @@ export default function Results() {
   const [fileName, setFileName] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'waveform' | 'psd' | 'constellation'>('waveform');
+  const [editingSampleRate, setEditingSampleRate] = useState<boolean>(false);
 
   useEffect(() => {
     const stored = sessionStorage.getItem('lastResult');
@@ -320,7 +321,34 @@ export default function Results() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs font-geist-mono">
           <div className="p-4 bg-canvas-elevated/90 border border-hairline rounded-md">
             <span className="block text-xs font-geist-mono font-weight-500 text-ink-faint">Sampling Rate</span>
-            <span className="block font-geist-mono font-weight-600 text-ink">{data.sample_rate.toLocaleString()} Hz</span>
+            {editingSampleRate ? (
+              <div className="flex items-center space-x-2">
+                <input
+                  type="number"
+                  value={data.sample_rate}
+                  onChange={(e) => {
+                    const value = Number(e.target.value);
+                    if (!isNaN(value) && value > 0) {
+                      setData(prev => ({ ...prev, sample_rate: value }));
+                    }
+                  }}
+                  min="1"
+                  step="1"
+                  className="w-[150px] bg-canvas-elevated border border-hairline rounded-md px-3 py-1 text-sm font-geist-mono text-ink focus:outline-none focus:ring-2 focus-ring-blue focus:border-blue transition-colors duration-200"
+                />
+                <span className="text-xs font-geist-mono text-ink-faint">Hz</span>
+              </div>
+            ) : (
+              <span className="block font-geist-mono font-weight-600 text-ink">{data.sample_rate.toLocaleString()} Hz</span>
+            )}
+            {!editingSampleRate && (
+              <button
+                onClick={() => setEditingSampleRate(true)}
+                className="text-xs font-geist-mono text-cyan-500 hover:text-cyan-400 mt-1"
+              >
+                Edit
+              </button>
+            )}
           </div>
           <div className="p-4 bg-canvas-elevated/90 border border-hairline rounded-md">
             <span className="block text-xs font-geist-mono font-weight-500 text-ink-faint">Total Duration</span>

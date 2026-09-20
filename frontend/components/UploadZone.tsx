@@ -25,8 +25,9 @@ export default function UploadZone({
 
   const [file, setFile] = useState<File | null>(null);
   // Use props if provided, otherwise fallback to internal state (for backward compatibility)
-  const [sampleRate, setSampleRate] = useState<number>(sampleRateProp ?? 1000000);
+  const [sampleRate, setSampleRateState] = useState<number>(sampleRateProp ?? 1000000);
   const [useAsync, setUseAsync] = useState<boolean>(useAsyncProp ?? true);
+  const [isCustomRate, setIsCustomRate] = useState<boolean>(false);
   const [isDragging, setIsDragging] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -35,12 +36,19 @@ export default function UploadZone({
 
   // Sync prop changes to state (if parent updates)
   useEffect(() => {
-    if (sampleRateProp !== undefined) setSampleRate(sampleRateProp);
+    if (sampleRateProp !== undefined) setSampleRateState(sampleRateProp);
   }, [sampleRateProp]);
 
   useEffect(() => {
     if (useAsyncProp !== undefined) setUseAsync(useAsyncProp);
   }, [useAsyncProp]);
+
+  // Update prop setter when sample rate changes locally
+  useEffect(() => {
+    if (setSampleRateProp) {
+      setSampleRateProp(sampleRate);
+    }
+  }, [sampleRate, setSampleRateProp]);
 
   const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -171,20 +179,45 @@ export default function UploadZone({
             <label className="block text-xs font-geist-mono font-weight-500 text-ink-faint mb-2">
               Sampling Rate (Hz)
             </label>
-            <select
-              value={sampleRate}
-              onChange={(e) => setSampleRate(Number(e.target.value))}
-              disabled={loading}
-              className="w-full bg-canvas-elevated border border-hairline rounded-md px-4 py-2 text-sm font-geist-mono text-ink focus:outline-none focus:ring-2 focus-ring-blue focus:border-blue transition-colors duration-200"
-            >
-              <option value={1000000}>1,000,000 Hz (1.0 MHz SDR Default)</option>
-              <option value={2000000}>2,000,000 Hz (2.0 MHz RTL-SDR)</option>
-              <option value={2400000}>2,400,000 Hz (2.4 MHz RTL-SDR)</option>
-              <option value={5000000}>5,000,000 Hz (5.0 MHz HackRF)</option>
-              <option value={10000000}>10,000,000 Hz (10.0 MHz)</option>
-              <option value={44100}>44,100 Hz (Audio WAV)</option>
-              <option value={48000}>48,000 Hz (Studio WAV)</option>
-            </select>
+            {isCustomRate ? (
+              <input
+                type="number"
+                value={sampleRate}
+                onChange={(e) => {
+                  const value = Number(e.target.value);
+                  if (!isNaN(value) && value > 0) setSampleRateState(value);
+                }}
+                min="1"
+                step="1"
+                disabled={loading}
+                className="w-full bg-canvas-elevated border border-hairline rounded-md px-4 py-2 text-sm font-geist-mono text-ink focus:outline-none focus:ring-2 focus-ring-blue focus:border-blue transition-colors duration-200"
+                placeholder="Enter custom rate (Hz)"
+              />)
+            : (
+              <select
+                value={sampleRate}
+                onChange={(e) => {
+                  const value = Number(e.target.value);
+                  if (value === -1) { // Custom option selected
+                    setIsCustomRate(true);
+                  } else {
+                    setSampleRateState(value);
+                    setIsCustomRate(false);
+                  }
+                }}
+                disabled={loading}
+                className="w-full bg-canvas-elevated border border-hairline rounded-md px-4 py-2 text-sm font-geist-mono text-ink focus:outline-none focus:ring-2 focus-ring-blue focus:border-blue transition-colors duration-200"
+              >
+                <option value={1000000}>1,000,000 Hz (1.0 MHz SDR Default)</option>
+                <option value={2000000}>2,000,000 Hz (2.0 MHz RTL-SDR)</option>
+                <option value={2400000}>2,400,000 Hz (2.4 MHz RTL-SDR)</option>
+                <option value={5000000}>5,000,000 Hz (5.0 MHz HackRF)</option>
+                <option value={10000000}>10,000,000 Hz (10.0 MHz)</option>
+                <option value={44100}>44,100 Hz (Audio WAV)</option>
+                <option value={48000}>48,000 Hz (Studio WAV)</option>
+                <option value={-1}>Custom...</option>
+              </select>
+            )}
           </div>
 
           <div className="flex flex-col justify-end">
