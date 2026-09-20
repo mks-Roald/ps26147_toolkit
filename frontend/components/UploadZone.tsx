@@ -205,9 +205,13 @@ export default function UploadZone({
       {/* Submit Button */}
       <div>
         <Button
-          variant="primary"
-          size="lg"
-          className="w-full text-black bg-white hover:bg-white/80"
+          className={`
+            font-geist-mono font-weight-500 transition-all duration-150 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:scale-100 w-full px-8 py-3 rounded-md
+            ${loading
+              ? 'bg-accent/30 border border-accent/40 text-accent'
+              : 'bg-white text-black border-hairline hover:bg-white/80 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700'
+            }
+          `}
           disabled={loading || !file}
           onClick={handleSubmit as any}
         >
@@ -222,7 +226,7 @@ export default function UploadZone({
           ) : (
             <>
               <span>Run Full Pipeline</span>
-            %>
+            </>
           )}
         </Button>
       </div>
