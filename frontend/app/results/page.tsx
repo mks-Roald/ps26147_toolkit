@@ -119,7 +119,7 @@ export default function Results() {
                     a.click();
                     URL.revokeObjectURL(url);
                   }}
-                  className="inline-flex items-center space-x-2 px-5 py-2.5 rounded-pill font-geist font-weight-500 transition-all duration-200 hover:bg-ink/90 bg-ink text-on-primary"
+                  className="inline-flex items-center space-x-2 px-5 py-2.5 rounded-pill font-geist font-weight-500 transition-all duration-200 hover:bg-ink/90 bg-ink text-on-primary dark:hover:bg-ink/20 dark:bg-ink/10 dark:text-ink"
                 >
                   <span>💾 Download JSON</span>
                 </button>
@@ -147,7 +147,7 @@ export default function Results() {
                     a.click();
                     URL.revokeObjectURL(url);
                   }}
-                  className="inline-flex items-center space-x-2 px-5 py-2.5 rounded-pill font-geist font-weight-500 transition-all duration-200 hover:bg-ink/90 bg-ink text-on-primary"
+                  className="inline-flex items-center space-x-2 px-5 py-2.5 rounded-pill font-geist font-weight-500 transition-all duration-200 hover:bg-ink/90 bg-ink text-on-primary dark:hover:bg-ink/20 dark:bg-ink/10 dark:text-ink"
                 >
                   <span>📥 Download CSV</span>
                 </button>
