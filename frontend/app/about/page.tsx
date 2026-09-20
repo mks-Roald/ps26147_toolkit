@@ -85,7 +85,7 @@ export default function About() {
 
       {/* CTA */}
       <div className="text-center pt-8">
-        <Link href="/" className="btn-primary">
+        <Link href="/" className="inline-flex items-center space-x-2 px-6 py-3 rounded-pill bg-[#4fc3f7] text-on-primary font-geist font-weight-500 hover:bg-[#4fc3f7]/90 transition-all duration-200">
           Start Analyzing Signals
         </Link>
       </div>
