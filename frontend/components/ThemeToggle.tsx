@@ -37,7 +37,7 @@ export function ThemeToggle() {
           <span className="text-yellow-400">☀️</span>
         )}
       </span>
-      <span className="hidden md:inline">{theme === 'dark' ? 'Dark' : 'Light'}</span>
+      <span className="hidden md:inline">{theme === 'dark' ? 'Dark (Recommended)' : 'Light'}</span>
     </button>
   );
 }
