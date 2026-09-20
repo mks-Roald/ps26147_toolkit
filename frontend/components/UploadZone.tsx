@@ -207,7 +207,7 @@ export default function UploadZone({
         <Button
           variant="primary"
           size="lg"
-          className="w-full"
+          className="w-full text-black bg-white hover:bg-white/80"
           disabled={loading || !file}
           onClick={handleSubmit as any}
         >
@@ -221,8 +221,8 @@ export default function UploadZone({
             </>
           ) : (
             <>
-              <span>⚡ Run Full Pipeline</span>
-            </>
+              <span>Run Full Pipeline</span>
+            %>
           )}
         </Button>
       </div>
