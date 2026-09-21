@@ -32,6 +32,12 @@ export interface ProcessResult {
   constellation_data?: ConstellationPoint[];
   psd_data?: PsdPoint[];
   waterfall_data?: WaterfallData;
+  demodulated_bits?: number[];
+  demodulated_bits_count?: number;
+  deinterleaved_bits?: number[];
+  deinterleaved_bits_count?: number;
+  decoded_bits?: number[];
+  correlate_result?: CorrelateResult;
 }
 
 export interface ClassifyResult {
