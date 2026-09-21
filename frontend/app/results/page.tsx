@@ -35,8 +35,8 @@ export default function Results() {
       // Step 1: Process file to get base results
       const processRes = await processFile(file, sampleRate);
 
-      // Step 2: Fetch decode results (using default fecScheme "none")
-      const decodeRes = await decodeSignal(file, "none", sampleRate);
+      // Step 2: Fetch decode results (using default fecScheme "")
+      const decodeRes = await decodeSignal(file, "", sampleRate);
 
       // Step 3: Fetch correlate results
       const correlateRes = await correlateSignal(file, { sampleRate });
