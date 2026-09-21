@@ -376,7 +376,7 @@ export default function Results() {
                   : 'text-ink-muted hover:text-ink hover:bg-canvas/90'
               }`}
             >
-              🌊 Time-Domain Waveform
+              Time-Domain Waveform
             </button>
             <button
               onClick={() => setActiveTab('psd')}
@@ -386,7 +386,7 @@ export default function Results() {
                   : 'text-ink-muted hover:text-ink hover:bg-canvas/90'
               }`}
             >
-              📊 Power Spectral Density (PSD)
+              Power Spectral Density (PSD)
             </button>
             <button
               onClick={() => setActiveTab('constellation')}
@@ -396,7 +396,7 @@ export default function Results() {
                   : 'text-ink-muted hover:text-ink hover:bg-canvas/90'
               }`}
             >
-              🌌 I/Q Constellation Diagram
+              I/Q Constellation Diagram
             </button>
             <button
               onClick={() => setActiveTab('spectrogram')}
@@ -406,7 +406,7 @@ export default function Results() {
                   : 'text-ink-muted hover:text-ink hover:bg-canvas/90'
               }`}
             >
-              📈 Spectrogram
+              Spectrogram
             </button>
             <button
               onClick={() => setActiveTab('waterfall')}
@@ -416,7 +416,7 @@ export default function Results() {
                   : 'text-ink-muted hover:text-ink hover:bg-canvas/90'
               }`}
             >
-              ⛲ Waterfall
+              Waterfall
             </button>
           </div>
 
