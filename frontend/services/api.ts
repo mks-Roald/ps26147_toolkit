@@ -51,6 +51,61 @@ export interface DecodeResult {
   fec_scheme?: string;
   decoded_bits_count: number;
   decoded_bits: number[];
+  demodulated_bits?: number[];
+  demodulated_bits_count?: number;
+  deinterleaved_bits?: number[];
+  deinterleaved_bits_count?: number;
+  deinterleaver_method?: string;
+  deinterleaver_params?: Record<string, any>;
+  deinterleaver_entropy?: number;
+  deinterleaver_baseline_entropy?: number;
+}
+
+export interface CorrelatedFrame {
+  start_bit: number;
+  end_bit: number;
+  frame_bits: number[];
+  payload_bits: number[];
+  correlation: number;
+}
+
+export interface PreambleDiscoveryResult {
+  discovered: boolean;
+  estimated_frame_period?: number;
+  periodicity_strength: number;
+  matched_standard_sync?: string;
+  standard_sync_confidence?: number;
+  candidate_preamble_bits?: number[];
+  candidate_preamble_hex?: string;
+}
+
+export interface CorrelateResult {
+  status: string;
+  sync_found: boolean;
+  peak_indices: number[];
+  num_frames: number;
+  frames: CorrelatedFrame[];
+  max_correlation: number;
+  is_inverted: boolean;
+  detected_frame_length?: number;
+  sync_word_len?: number;
+  correlation_curve?: number[];
+  preamble_discovery?: PreambleDiscoveryResult;
+  num_bits?: number;
+  bits?: number[];
+}
+
+export interface CorrelateRequest {
+  bits?: number[];
+  hex_string?: string;
+  bit_string?: string;
+  sync_word?: string;
+  sync_word_hex?: string;
+  sync_word_bits?: number[];
+  frame_length?: number;
+  threshold?: number;
+  tolerate_inverted?: boolean;
+  auto_discover?: boolean;
 }
 
 export interface AsyncJobResponse {
@@ -157,6 +212,66 @@ export async function decodeSignal(
     method: "POST",
     body: form,
   });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`API error (${res.status}): ${err}`);
+  }
+  return res.json();
+}
+
+export async function correlateSignal(
+  file: File,
+  options: {
+    syncWord?: string;
+    frameLength?: number;
+    threshold?: number;
+    tolerateInverted?: boolean;
+    sampleRate?: number;
+    fecScheme?: string;
+    autoDeinterleave?: boolean;
+    autoDiscover?: boolean;
+  } = {}
+): Promise<CorrelateResult> {
+  const form = new FormData();
+  form.append("file", file);
+
+  const params = new URLSearchParams();
+  if (options.syncWord) params.append("sync_word", options.syncWord);
+  if (options.frameLength !== undefined) params.append("frame_length", options.frameLength.toString());
+  if (options.threshold !== undefined) params.append("threshold", options.threshold.toString());
+  if (options.tolerateInverted !== undefined) params.append("tolerate_inverted", options.tolerateInverted.toString());
+  if (options.sampleRate !== undefined) params.append("fs", options.sampleRate.toString());
+  if (options.fecScheme !== undefined) params.append("fec_scheme", options.fecScheme);
+  if (options.autoDeinterleave !== undefined) params.append("auto_deinterleave", options.autoDeinterleave.toString());
+  if (options.autoDiscover !== undefined) params.append("auto_discover", options.autoDiscover.toString());
+
+  const queryString = params.toString() ? `?${params.toString()}` : "";
+  const res = await fetch(`${API_BASE}/correlate/file${queryString}`, {
+    method: "POST",
+    body: form,
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`API error (${res.status}): ${err}`);
+  }
+  return res.json();
+}
+
+export async function correlateBits(request: CorrelateRequest): Promise<CorrelateResult> {
+  const res = await fetch(`${API_BASE}/correlate/bits`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`API error (${res.status}): ${err}`);
+  }
+  return res.json();
+}
+
+export async function getSyncWords(): Promise<Record<string, { length: number; bit_string: string; hex: string }>> {
+  const res = await fetch(`${API_BASE}/correlate/sync-words`);
   if (!res.ok) {
     const err = await res.text();
     throw new Error(`API error (${res.status}): ${err}`);
