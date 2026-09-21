@@ -26,7 +26,7 @@ export default function Results() {
   const [fileName, setFileName] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'waveform' | 'psd' | 'constellation'>('waveform');
+  const [activeTab, setActiveTab] = useState<'waveform' | 'psd' | 'constellation' | 'spectrogram' | 'waterfall'>('waveform');
   const [editingSampleRate, setEditingSampleRate] = useState<boolean>(false);
 
   // Fetch full analysis including decode and correlate results
@@ -398,6 +398,26 @@ export default function Results() {
             >
               🌌 I/Q Constellation Diagram
             </button>
+            <button
+              onClick={() => setActiveTab('spectrogram')}
+              className={`flex items-center space-x-2 px-4 py-2 rounded-sm font-geist font-weight-500 transition-all duration-200 ${
+                activeTab === 'spectrogram'
+                  ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/40'
+                  : 'text-ink-muted hover:text-ink hover:bg-canvas/90'
+              }`}
+            >
+              📈 Spectrogram
+            </button>
+            <button
+              onClick={() => setActiveTab('waterfall')}
+              className={`flex items-center space-x-2 px-4 py-2 rounded-sm font-geist font-weight-500 transition-all duration-200 ${
+                activeTab === 'waterfall'
+                  ? 'bg-teal-500/20 text-teal-400 border border-teal-500/40'
+                  : 'text-ink-muted hover:text-ink hover:bg-canvas/90'
+              }`}
+            >
+              ⛲ Waterfall
+            </button>
           </div>
 
           <div className="text-xs font-geist-mono text-ink-faint">
@@ -483,8 +503,19 @@ export default function Results() {
         )}
       </section>
 
-      {/* Spectrogram & 3D Waterfall Display Section */}
-      <WaterfallPlot data={data.waterfall_data} />
+      {/* Tab 4: Spectrogram */}
+      {activeTab === 'spectrogram' && (
+        <div className="space-y-4">
+          <WaterfallPlot data={data.waterfall_data} viewMode="2d" />
+        </div>
+      )}
+
+      {/* Tab 5: Waterfall */}
+      {activeTab === 'waterfall' && (
+        <div className="space-y-4">
+          <WaterfallPlot data={data.waterfall_data} viewMode="3d" />
+        </div>
+      )}
 
       {/* NEW SECTIONS START */}
       {data?.demodulated_bits && (

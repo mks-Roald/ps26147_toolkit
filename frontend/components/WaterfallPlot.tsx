@@ -7,18 +7,30 @@ import Card from '@/components/base/Card';
 interface WaterfallPlotProps {
   data?: WaterfallData;
   className?: string;
+  /** Optional initial view mode. If provided, the view mode toggle UI will be hidden. */
+  viewMode?: PlotViewMode;
 }
 
 type PlotViewMode = '2d' | '3d';
 type ColorScheme = 'Viridis' | 'Jet' | 'Plasma' | 'Turbo' | 'Inferno';
 
-export default function WaterfallPlot({ data, className = '' }: WaterfallPlotProps) {
+export default function WaterfallPlot({ data, className = '', viewMode }: WaterfallPlotProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [viewMode, setViewMode] = useState<PlotViewMode>('2d');
+  const [internalViewMode, setInternalViewMode] = useState<PlotViewMode>('2d');
   const [colorScale, setColorScale] = useState<ColorScheme>('Viridis');
   const [isDark, setIsDark] = useState<boolean>(true);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const plotlyInstanceRef = useRef<any>(null);
+
+  // Initialize viewMode from prop if provided
+  useEffect(() => {
+    if (viewMode !== undefined) {
+      setInternalViewMode(viewMode);
+    }
+  }, [viewMode]);
+
+  // Use internalViewMode for rendering logic, but allow prop to override
+  const effectiveViewMode = viewMode !== undefined ? viewMode : internalViewMode;
 
   // Monitor theme changes on document.documentElement
   useEffect(() => {
@@ -74,7 +86,7 @@ export default function WaterfallPlot({ data, className = '' }: WaterfallPlotPro
       let plotData: any[] = [];
       let layout: any = {};
 
-      if (viewMode === '2d') {
+      if (effectiveViewMode === '2d') {
         plotData = [
           {
             type: 'heatmap',
@@ -212,7 +224,7 @@ export default function WaterfallPlot({ data, className = '' }: WaterfallPlotPro
       console.error('Error rendering Plotly spectrogram/waterfall:', err);
       setIsLoading(false);
     }
-  }, [data, viewMode, colorScale, isDark]);
+  }, [data, effectiveViewMode, colorScale, isDark]);
 
   useEffect(() => {
     renderPlot();
@@ -269,50 +281,53 @@ export default function WaterfallPlot({ data, className = '' }: WaterfallPlotPro
           </p>
         </div>
 
-        {/* View mode and Colormap toggles */}
-        <div className="flex flex-wrap items-center gap-3">
-          {/* 2D / 3D Switch */}
-          <div className="inline-flex rounded-sm p-1 bg-canvas border border-hairline">
-            <button
-              onClick={() => setViewMode('2d')}
-              className={`px-3 py-1.5 rounded-sm text-xs font-geist font-weight-500 transition-all duration-200 ${
-                viewMode === '2d'
-                  ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/40 shadow-sm'
-                  : 'text-ink-muted hover:text-ink'
-              }`}
-            >
-              🗺️ 2D Heatmap
-            </button>
-            <button
-              onClick={() => setViewMode('3d')}
-              className={`px-3 py-1.5 rounded-sm text-xs font-geist font-weight-500 transition-all duration-200 ${
-                viewMode === '3d'
-                  ? 'bg-fuchsia-500/20 text-fuchsia-400 border border-fuchsia-500/40 shadow-sm'
-                  : 'text-ink-muted hover:text-ink'
-              }`}
-            >
-              🏔️ 3D Surface
-            </button>
-          </div>
+        {/* View mode and Colormap toggles - only show if viewMode prop is not provided */}
+        {viewMode === undefined && (
+          <div className="flex flex-wrap items-center gap-3">
+            {/* 2D / 3D Switch */}
+            <div className="inline-flex rounded-sm p-1 bg-canvas border border-hairline">
+              <button
+                onClick={() => setInternalViewMode('2d')}
+                className={`px-3 py-1.5 rounded-sm text-xs font-geist font-weight-500 transition-all duration-200 ${
+                  internalViewMode === '2d'
+                    ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/40 shadow-sm'
+                    : 'text-ink-muted hover:text-ink'
+                }`}
+              >
+                🗺️ 2D Heatmap
+              </button>
+              <button
+                onClick={() => setInternalViewMode('3d')}
+                className={`px-3 py-1.5 rounded-sm text-xs font-geist font-weight-500 transition-all duration-200 ${
+                  internalViewMode === '3d'
+                    ? 'bg-fuchsia-500/20 text-fuchsia-400 border border-fuchsia-500/40 shadow-sm'
+                    : 'text-ink-muted hover:text-ink'
+                }`}
+              >
+                🏔️ 3D Surface
+              </button>
+            </div>
 
-          {/* Colormap selection */}
-          <div className="flex items-center space-x-2">
-            <label className="text-xs font-geist-mono text-ink-faint hidden sm:inline">
-              Palette:
-            </label>
-            <select
-              value={colorScale}
-              onChange={(e) => setColorScale(e.target.value as ColorScheme)}
-              className="bg-canvas border border-hairline rounded-sm px-2.5 py-1.5 text-xs font-geist-mono text-ink focus:outline-none focus:ring-2 focus-ring-blue transition-colors duration-200"
-            >
-              <option value="Viridis">Viridis (Default)</option>
-              <option value="Jet">Jet (Classic Waterfall)</option>
-              <option value="Plasma">Plasma</option>
-              <option value="Turbo">Turbo</option>
-              <option value="Inferno">Inferno</option>
-            </select>
+            {/* Colormap selection */}
+            <div className="flex items-center space-x-2">
+              <label className="text-xs font-geist-mono text-ink-faint hidden sm:inline">
+                Palette:
+              </label>
+              <select
+                value={colorScale}
+                onChange={(e) => setColorScale(e.target.value as ColorScheme)}
+                className="bg-canvas border border-hairline rounded-sm px-2.5 py-1.5 text-xs font-geist-mono text-ink focus:outline-none focus:ring-2 focus-ring-blue transition-colors duration-200"
+              >
+                <option value="Viridis">Viridis (Default)</option>
+                <option value="Jet">Jet (Classic Waterfall)</option>
+                <option value="Plasma">Plasma</option>
+                <option value="Turbo">Turbo</option>
+                <option value="Inferno">Inferno</option>
+              </select>
+            </div>
           </div>
-        </div>
+        )}
+
       </div>
 
       {/* Plot container */}
@@ -321,7 +336,7 @@ export default function WaterfallPlot({ data, className = '' }: WaterfallPlotPro
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-canvas-elevated/70 backdrop-blur-xs">
             <div className="w-8 h-8 border-3 border-cyan-400 border-t-transparent rounded-full animate-spin"></div>
             <span className="text-xs font-geist-mono text-ink-muted mt-2">
-              Rendering {viewMode === '2d' ? '2D Spectrogram' : '3D Waterfall'}…
+              Rendering {effectiveViewMode === '2d' ? '2D Spectrogram' : '3D Waterfall'}…
             </span>
           </div>
         )}
@@ -335,7 +350,7 @@ export default function WaterfallPlot({ data, className = '' }: WaterfallPlotPro
       {/* Footer Info */}
       <div className="flex flex-wrap items-center justify-between gap-2 mt-4 pt-3 border-t border-hairline/60 text-xs font-geist-mono text-ink-faint">
         <span>
-          {viewMode === '2d'
+          {effectiveViewMode === '2d'
             ? 'Hover over spectrogram bins to inspect precise time, frequency, and power (dB).'
             : 'Click and drag to rotate the 3D surface. Scroll to zoom, and right-click to pan.'}
         </span>
