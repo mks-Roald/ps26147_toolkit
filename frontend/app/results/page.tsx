@@ -10,14 +10,13 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-  Legend,
   ResponsiveContainer,
   ScatterChart,
   Scatter,
   AreaChart,
   Area,
 } from 'recharts';
-import { ProcessResult, processFile } from '@/services/api';
+import { ProcessResult, processFile, DecodeResult, CorrelateResult, decodeSignal, correlateSignal } from '@/services/api';
 import Card from '@/components/base/Card';
 import WaterfallPlot from '@/components/WaterfallPlot';
 
@@ -29,6 +28,33 @@ export default function Results() {
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'waveform' | 'psd' | 'constellation'>('waveform');
   const [editingSampleRate, setEditingSampleRate] = useState<boolean>(false);
+
+  // Fetch full analysis including decode and correlate results
+  const fetchFullAnalysis = async (file: File, sampleRate: number): Promise<ProcessResult> => {
+    try {
+      // Step 1: Process file to get base results
+      const processRes = await processFile(file, sampleRate);
+
+      // Step 2: Fetch decode results (using default fecScheme "none")
+      const decodeRes = await decodeSignal(file, "none", sampleRate);
+
+      // Step 3: Fetch correlate results
+      const correlateRes = await correlateSignal(file, { sampleRate });
+
+      // Merge all results
+      return {
+        ...processRes,
+        demodulated_bits: decodeRes.demodulated_bits,
+        demodulated_bits_count: decodeRes.demodulated_bits_count,
+        deinterleaved_bits: decodeRes.deinterleaved_bits,
+        deinterleaved_bits_count: decodeRes.deinterleaved_bits_count,
+        decoded_bits: decodeRes.decoded_bits,
+        correlate_result: correlateRes,
+      };
+    } catch (err) {
+      throw err;
+    }
+  };
 
   // Helper to decode base64 string back to File object
   const base64ToFile = (base64String: string, fileName: string): File | null => {
@@ -81,8 +107,8 @@ export default function Results() {
         throw new Error('Failed to reconstruct file from stored data');
       }
 
-      // Re-process with new sample rate
-      const res = await processFile(originalFile, newSampleRate);
+      // Re-process with new sample rate (including decode and correlate)
+      const res = await fetchFullAnalysis(originalFile, newSampleRate);
 
       // Update data and session storage
       setData(res);
@@ -459,6 +485,149 @@ export default function Results() {
 
       {/* Spectrogram & 3D Waterfall Display Section */}
       <WaterfallPlot data={data.waterfall_data} />
+
+      {/* NEW SECTIONS START */}
+      {data?.demodulated_bits && (
+        <section className="bg-canvas-elevated hairline-border rounded-lg p-6 whisper-shadow">
+          <h2 className="font-geist font-weight-600 text-lg text-ink mb-6">
+            Demodulated Bitstream
+          </h2>
+          <div className="space-y-4">
+            <div className="h-96 w-full bg-canvas-elevated overflow-auto p-4">
+              <pre className="font-geist-mono text-xs text-ink">
+                {data.demodulated_bits
+                  .slice(0, 100)
+                  .map(bit => bit.toString())
+                  .join('')}
+                {data.demodulated_bits.length > 100 ? '...' : ''}
+              </pre>
+            </div>
+            <button
+              onClick={() => {
+                const bitsString = data!.demodulated_bits.join('');
+                const blob = new Blob([bitsString], { type: 'text/plain' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'demodulated_bits.txt';
+                a.click();
+                URL.revokeObjectURL(url);
+              }}
+              className="inline-flex items-center space-x-2 px-5 py-2.5 rounded-pill font-geist font-weight-500 transition-all duration-200 hover:bg-ink/90 bg-ink text-on-primary dark:hover:bg-ink/20 dark:bg-ink/10 dark:text-ink"
+            >
+              <span>💾 Download Full Data</span>
+            </button>
+          </div>
+        </section>
+      )}
+      {data?.deinterleaved_bits && (
+        <section className="bg-canvas-elevated hairline-border rounded-lg p-6 whisper-shadow">
+          <h2 className="font-geist font-weight-600 text-lg text-ink mb-6">
+            Deinterleaved Output
+          </h2>
+          <div className="space-y-4">
+            <div className="h-96 w-full bg-canvas-elevated overflow-auto p-4">
+              <pre className="font-geist-mono text-xs text-ink">
+                {data.deinterleaved_bits
+                  .slice(0, 100)
+                  .map(bit => bit.toString())
+                  .join('')}
+                {data.deinterleaved_bits.length > 100 ? '...' : ''}
+              </pre>
+            </div>
+            <button
+              onClick={() => {
+                const bitsString = data!.deinterleaved_bits.join('');
+                const blob = new Blob([bitsString], { type: 'text/plain' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'deinterleaved_bits.txt';
+                a.click();
+                URL.revokeObjectURL(url);
+              }}
+              className="inline-flex items-center space-x-2 px-5 py-2.5 rounded-pill font-geist font-weight-500 transition-all duration-200 hover:bg-ink/90 bg-ink text-on-primary dark:hover:bg-ink/20 dark:bg-ink/10 dark:text-ink"
+            >
+              <span>💾 Download Full Data</span>
+            </button>
+          </div>
+        </section>
+      )}
+      {data?.decoded_bits && (
+        <section className="bg-canvas-elevated hairline-border rounded-lg p-6 whisper-shadow">
+          <h2 className="font-geist font-weight-600 text-lg text-ink mb-6">
+            FEC Decoded Stream
+          </h2>
+          <div className="space-y-4">
+            <div className="h-96 w-full bg-canvas-elevated overflow-auto p-4">
+              <pre className="font-geist-mono text-xs text-ink">
+                {data.decoded_bits
+                  .slice(0, 100)
+                  .map(bit => bit.toString())
+                  .join('')}
+                {data.decoded_bits.length > 100 ? '...' : ''}
+              </pre>
+            </div>
+            <button
+              onClick={() => {
+                const bitsString = data!.decoded_bits.join('');
+                const blob = new Blob([bitsString], { type: 'text/plain' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'decoded_bits.txt';
+                a.click();
+                URL.revokeObjectURL(url);
+              }}
+              className="inline-flex items-center space-x-2 px-5 py-2.5 rounded-pill font-geist font-weight-500 transition-all duration-200 hover:bg-ink/90 bg-ink text-on-primary dark:hover:bg-ink/20 dark:bg-ink/10 dark:text-ink"
+            >
+              <span>💾 Download Full Data</span>
+            </button>
+          </div>
+        </section>
+      )}
+      {data?.correlate_result && (
+        <section className="bg-canvas-elevated hairline-border rounded-lg p-6 whisper-shadow">
+          <h2 className="font-geist font-weight-600 text-lg text-ink mb-6">
+            Correlation/Sync Results
+          </h2>
+          <div className="space-y-4">
+            <div className="h-96 w-full bg-canvas-elevated overflow-auto p-4">
+              <pre className="font-geist-mono text-xs text-ink">
+                {data.correlate_result.bits ? (
+                  data.correlate_result.bits
+                    .slice(0, 100)
+                    .map(bit => bit.toString())
+                    .join('') + (data.correlate_result.bits.length > 100 ? '...' : '')
+                ) : (
+                  JSON.stringify(data.correlate_result, null, 2)
+                )}
+              </pre>
+            </div>
+            <button
+              onClick={() => {
+                let content = '';
+                if (data.correlate_result.bits) {
+                  content = data.correlate_result.bits.join('');
+                } else {
+                  content = JSON.stringify(data.correlate_result, null, 2);
+                }
+                const blob = new Blob([content], { type: 'text/plain' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'correlate_result.txt';
+                a.click();
+                URL.revokeObjectURL(url);
+              }}
+              className="inline-flex items-center space-x-2 px-5 py-2.5 rounded-pill font-geist font-weight-500 transition-all duration-200 hover:bg-ink/90 bg-ink text-on-primary dark:hover:bg-ink/20 dark:bg-ink/10 dark:text-ink"
+            >
+              <span>💾 Download Full Data</span>
+            </button>
+          </div>
+        </section>
+      )}
+      {/* NEW SECTIONS END */}
 
       {/* Signal Metadata Details Table */}
       <section className="bg-canvas-elevated hairline-border rounded-lg p-6 whisper-shadow">
