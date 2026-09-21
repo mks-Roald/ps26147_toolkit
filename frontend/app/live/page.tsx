@@ -17,6 +17,16 @@ import {
 import { createSDRWebSocket, SDRFrame, SDRStreamControls } from '@/services/stream';
 import Card from '@/components/base/Card';
 
+const MODULATION_BAUD_RANGES: Record<string, { min: number; max: number; step: number }> = {
+  BPSK: { min: 1000, max: 100000, step: 1000 },
+  QPSK: { min: 1000, max: 200000, step: 1000 },
+  '8PSK': { min: 1000, max: 300000, step: 1000 },
+  '16-QAM': { min: 1000, max: 400000, step: 1000 },
+  '64-QAM': { min: 1000, max: 500000, step: 1000 },
+  '2-FSK': { min: 1000, max: 50000, step: 500 },
+  '4-FSK': { min: 1000, max: 100000, step: 500 },
+};
+
 export default function LiveStreamPage() {
   const [isConnected, setIsConnected] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
@@ -68,18 +78,7 @@ export default function LiveStreamPage() {
 
   // Clamp baud_rate to sane ranges when modulation changes
   useEffect(() => {
-    // Define sane baud_rate ranges for different modulations (in Bd)
-    const modulationRanges: Record<string, { min: number; max: number }> = {
-      BPSK: { min: 1000, max: 100000 },
-      QPSK: { min: 1000, max: 200000 },
-      '8PSK': { min: 1000, max: 300000 },
-      '16-QAM': { min: 1000, max: 400000 },
-      '64-QAM': { min: 1000, max: 500000 },
-      '2-FSK': { min: 1000, max: 50000 },
-      '4-FSK': { min: 1000, max: 100000 },
-    };
-
-    const range = modulationRanges[controls.modulation] || { min: 1000, max: 500000 };
+    const range = MODULATION_BAUD_RANGES[controls.modulation] || { min: 1000, max: 500000, step: 1000 };
 
     if (controls.baud_rate < range.min) {
       handleControlChange('baud_rate', range.min);
@@ -341,9 +340,9 @@ export default function LiveStreamPage() {
             </div>
             <input
               type="range"
-              min="1000"
-              max="500000"
-              step="1000"
+              min={MODULATION_BAUD_RANGES[controls.modulation]?.min ?? 1000}
+              max={MODULATION_BAUD_RANGES[controls.modulation]?.max ?? 500000}
+              step={MODULATION_BAUD_RANGES[controls.modulation]?.step ?? 1000}
               value={controls.baud_rate}
               onChange={(e) => handleControlChange('baud_rate', Number(e.target.value))}
               className="w-full bg-canvas-elevated h-2 rounded-full cursor-pointer bg-gradient-to-r from-fuchsia-400 via-magenta-500 to-pink-500"
