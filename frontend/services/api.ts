@@ -10,6 +10,12 @@ export interface PsdPoint {
   psd: number;
 }
 
+export interface WaterfallData {
+  time: number[];
+  frequency: number[];
+  power_db: number[][];
+}
+
 export interface ProcessResult {
   modulation: string;
   confidence: number;
@@ -25,6 +31,7 @@ export interface ProcessResult {
   waveform_data: number[];
   constellation_data?: ConstellationPoint[];
   psd_data?: PsdPoint[];
+  waterfall_data?: WaterfallData;
 }
 
 export interface ClassifyResult {

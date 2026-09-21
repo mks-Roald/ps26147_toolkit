@@ -17,6 +17,11 @@ class PsdPoint(BaseModel):
     freq: float
     psd: float
 
+class WaterfallData(BaseModel):
+    time: List[float]
+    frequency: List[float]
+    power_db: List[List[float]]
+
 class ProcessResponse(BaseModel):
     modulation: str
     confidence: float
@@ -32,6 +37,7 @@ class ProcessResponse(BaseModel):
     waveform_data: List[float]
     constellation_data: Optional[List[ConstellationPoint]] = None
     psd_data: Optional[List[PsdPoint]] = None
+    waterfall_data: Optional[WaterfallData] = None
 
 class DecodeResponse(BaseModel):
     modulation: str

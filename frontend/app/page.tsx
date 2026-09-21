@@ -12,15 +12,17 @@ export default function HomePage() {
 
   // Read sampleRate from query param on mount
   useEffect(() => {
-    const params = new URLSearchParams(router.search);
-    const sr = params.get('sampleRate');
-    if (sr) {
-      const parsed = parseInt(sr, 10);
-      if (!isNaN(parsed) && parsed > 0) {
-        setSampleRate(parsed);
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const sr = params.get('sampleRate');
+      if (sr) {
+        const parsed = parseInt(sr, 10);
+        if (!isNaN(parsed) && parsed > 0) {
+          setSampleRate(parsed);
+        }
       }
     }
-  }, [router.search]);
+  }, []);
 
   const modulationOptions = [
     { label: 'BPSK', value: 'BPSK' },
