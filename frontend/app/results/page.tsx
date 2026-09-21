@@ -25,8 +25,78 @@ export default function Results() {
   const [data, setData] = useState<ProcessResult | null>(null);
   const [fileName, setFileName] = useState<string>('');
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'waveform' | 'psd' | 'constellation'>('waveform');
   const [editingSampleRate, setEditingSampleRate] = useState<boolean>(false);
+
+  // Helper to decode base64 string back to File object
+  const base64ToFile = (base64String: string, fileName: string): File | null => {
+    try {
+      // Remove data URL prefix if present
+      const base64Data = base64String.split(',')[1] || base64String;
+      const binaryString = window.atob(base64Data);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      // Determine MIME type from file extension
+      const ext = fileName.split('.').pop()?.toLowerCase() || '';
+      const mimeTypes: Record<string, string> = {
+        wav: 'audio/wav',
+        iq: 'application/octet-stream',
+        bin: 'application/octet-stream',
+        raw: 'application/octet-stream',
+        'sigmf-data': 'application/octet-stream'
+      };
+      const mimeType = mimeTypes[ext] || 'application/octet-stream';
+      return new File([bytes], fileName, { type: mimeType });
+    } catch (error) {
+      console.error('Failed to decode base64 to File:', error);
+      return null;
+    }
+  };
+
+  // Handle sample rate changes with file re-processing
+  const handleSampleRateChange = async () => {
+    if (!data) return;
+
+    const newSampleRate = data.sample_rate;
+    if (!newSampleRate || newSampleRate <= 0) return;
+
+    setLoading(true);
+
+    try {
+      // Retrieve the original file from sessionStorage
+      const base64String = sessionStorage.getItem('lastFileBase64');
+      const fileName = sessionStorage.getItem('lastFileName') || 'signal.file';
+
+      if (!base64String) {
+        throw new Error('Original file data not found in storage');
+      }
+
+      // Decode base64 back to File object
+      const originalFile = base64ToFile(base64String, fileName);
+      if (!originalFile) {
+        throw new Error('Failed to reconstruct file from stored data');
+      }
+
+      // Re-process with new sample rate
+      const res = await processFile(originalFile, newSampleRate);
+
+      // Update data and session storage
+      setData(res);
+      sessionStorage.setItem('lastResult', JSON.stringify(res));
+      sessionStorage.setItem('lastFileName', fileName);
+      sessionStorage.setItem('lastFileSize', String(originalFile.size));
+      sessionStorage.setItem('lastSampleRate', String(newSampleRate));
+
+    } catch (err: any) {
+      setError(err.message || 'Failed to re-process signal with new sample rate');
+    } finally {
+      setLoading(false);
+      setEditingSampleRate(false);
+    }
+  };
 
   useEffect(() => {
     const stored = sessionStorage.getItem('lastResult');
@@ -387,32 +457,16 @@ export default function Results() {
                   type="number"
                   value={data.sample_rate}
                   onChange={(e) => setData({ ...data, sample_rate: Number(e.target.value) })}
-                  onKeyDown={(e) => {
+                  onKeyDown={async (e) => {
                     if (e.key === "Enter") {
-                      const value = Number(e.target.value);
-                      if (!isNaN(value) && value > 0) {
-                        // Update local state
-                        setData(prev => ({ ...prev, sample_rate: value }));
-                        // Store in sessionStorage for passing back to upload page
-                        sessionStorage.setItem('lastSampleRate', String(value));
-                        // Navigate back to upload page with sample rate as query parameter
-                        router.push(`/?sampleRate=${value}`);
-                      }
+                      await handleSampleRateChange();
                     }
                     if (e.key === "Escape") {
                       setEditingSampleRate(false); // cancel edit
                     }
                   }}
-                  onBlur={(e) => {
-                    const value = Number(e.target.value);
-                    if (!isNaN(value) && value > 0) {
-                      // Update local state
-                      setData(prev => ({ ...prev, sample_rate: value }));
-                      // Store in sessionStorage for passing back to upload page
-                      sessionStorage.setItem('lastSampleRate', String(value));
-                      // Navigate back to upload page with sample rate as query parameter
-                      router.push(`/?sampleRate=${value}`);
-                    }
+                  onBlur={async (e) => {
+                    await handleSampleRateChange();
                   }}
                   min="1"
                   step="1"
