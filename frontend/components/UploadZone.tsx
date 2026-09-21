@@ -187,20 +187,38 @@ export default function UploadZone({
               Sampling Rate (Hz)
             </label>
             {isCustomRate ? (
-              <input
-                type="number"
-                value={sampleRate}
-                onChange={(e) => {
-                  const value = Number(e.target.value);
-                  if (!isNaN(value) && value > 0) setSampleRateState(value);
-                }}
-                min="1"
-                step="1"
-                disabled={loading}
-                className="w-full bg-canvas-elevated border border-hairline rounded-md px-4 py-2 text-sm font-geist-mono text-ink focus:outline-none focus:ring-2 focus-ring-blue focus:border-blue transition-colors duration-200"
-                placeholder="Enter custom rate (Hz)"
-              />)
-            : (
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  value={sampleRate}
+                  onChange={(e) => {
+                    const value = Number(e.target.value);
+                    if (!isNaN(value) && value > 0) setSampleRateState(value);
+                  }}
+                  min="1"
+                  step="1"
+                  disabled={loading}
+                  className="flex-1 bg-canvas-elevated border border-hairline rounded-md px-4 py-2 text-sm font-geist-mono text-ink focus:outline-none focus:ring-2 focus-ring-blue focus:border-blue transition-colors duration-200"
+                  placeholder="Enter custom rate (Hz)"
+                />
+                <button
+                  type="button"
+                  disabled={loading}
+                  onClick={() => {
+                    setIsCustomRate(false);
+                    // Snap back to nearest preset, defaulting to 1 MHz
+                    const presets = [1000000, 2000000, 2400000, 5000000, 10000000, 44100, 48000];
+                    if (!presets.includes(sampleRate)) {
+                      setSampleRateState(1000000);
+                    }
+                  }}
+                  className="shrink-0 px-3 py-2 text-xs font-geist-mono text-ink-faint bg-canvas-elevated border border-hairline rounded-md hover:border-cyan-500/50 hover:text-ink transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Switch back to preset rates"
+                >
+                  ← Presets
+                </button>
+              </div>
+            ) : (
               <select
                 value={sampleRate}
                 onChange={(e) => {
