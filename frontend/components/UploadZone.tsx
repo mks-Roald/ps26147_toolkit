@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, DragEvent } from 'react';
-import { processFile, startAsyncProcess, pollJobStatus } from '@/services/api';
+import { processFile, startAsyncProcess, pollJobStatus, decodeSignal, correlateSignal } from '@/services/api';
 import { useRouter } from 'next/navigation';
 import Button from '@/components/base/Button';
 
@@ -84,23 +84,42 @@ export default function UploadZone({
     setProgressStage('Initializing file upload…');
 
     try {
-      let res;
+      let processRes;
       if (useAsync) {
         setProgressStage('Submitting job to background task queue…');
         const job = await startAsyncProcess(file, sampleRate);
         setProgressStage('Job queued. Polling execution status…');
 
-        res = await pollJobStatus(job.job_id, (status) => {
+        processRes = await pollJobStatus(job.job_id, (status) => {
           setProgressPercent(Math.round(status.progress * 100));
           setProgressStage(status.stage);
         });
       } else {
         setProgressStage('Processing synchronous request…');
-        res = await processFile(file, sampleRate);
+        processRes = await processFile(file, sampleRate);
       }
 
+      // Fetch decode results
+      setProgressStage('Fetching decode results…');
+      const decodeRes = await decodeSignal(file, "", sampleRate);
+
+      // Fetch correlate results
+      setProgressStage('Fetching correlation results…');
+      const correlateRes = await correlateSignal(file, { sampleRate });
+
+      // Merge all results
+      const fullRes = {
+        ...processRes,
+        demodulated_bits: decodeRes.demodulated_bits,
+        demodulated_bits_count: decodeRes.demodulated_bits_count,
+        deinterleaved_bits: decodeRes.deinterleaved_bits,
+        deinterleaved_bits_count: decodeRes.deinterleaved_bits_count,
+        decoded_bits: decodeRes.decoded_bits,
+        correlate_result: correlateRes,
+      };
+
       // Store results and navigate
-      sessionStorage.setItem('lastResult', JSON.stringify(res));
+      sessionStorage.setItem('lastResult', JSON.stringify(fullRes));
       sessionStorage.setItem('lastFileName', file.name);
       sessionStorage.setItem('lastFileSize', String(file.size));
 
@@ -112,7 +131,7 @@ export default function UploadZone({
       reader.readAsDataURL(file);
 
       if (onSuccess) {
-        onSuccess(res);
+        onSuccess(fullRes);
       } else {
         router.push('/results');
       }
