@@ -218,7 +218,7 @@ export default function Results() {
                   }}
                   className="inline-flex items-center space-x-2 px-5 py-2.5 rounded-pill font-geist font-weight-500 transition-all duration-200 hover:bg-ink/90 bg-ink text-on-primary dark:hover:bg-ink/20 dark:bg-ink/10 dark:text-ink"
                 >
-                  <span>💾 Download JSON</span>
+                  <span>Download JSON</span>
                 </button>
                 <button
                   onClick={() => {
@@ -246,7 +246,7 @@ export default function Results() {
                   }}
                   className="inline-flex items-center space-x-2 px-5 py-2.5 rounded-pill font-geist font-weight-500 transition-all duration-200 hover:bg-ink/90 bg-ink text-on-primary dark:hover:bg-ink/20 dark:bg-ink/10 dark:text-ink"
                 >
-                  <span>📥 Download CSV</span>
+                  <span>Download CSV</span>
                 </button>
               </>
             )}
@@ -524,7 +524,7 @@ export default function Results() {
             Demodulated Bitstream
           </h2>
           <div className="space-y-4">
-            <div className="h-96 w-full bg-canvas-elevated overflow-auto p-4">
+            <div className="h-48 w-full bg-canvas-elevated overflow-auto p-4">
               <pre className="font-geist-mono text-xs text-ink">
                 {data.demodulated_bits
                   .slice(0, 100)
@@ -546,7 +546,7 @@ export default function Results() {
               }}
               className="inline-flex items-center space-x-2 px-5 py-2.5 rounded-pill font-geist font-weight-500 transition-all duration-200 hover:bg-ink/90 bg-ink text-on-primary dark:hover:bg-ink/20 dark:bg-ink/10 dark:text-ink"
             >
-              <span>💾 Download Full Data</span>
+              <span>Download Full Data</span>
             </button>
           </div>
         </section>
@@ -557,7 +557,7 @@ export default function Results() {
             Deinterleaved Output
           </h2>
           <div className="space-y-4">
-            <div className="h-96 w-full bg-canvas-elevated overflow-auto p-4">
+            <div className="h-48 w-full bg-canvas-elevated overflow-auto p-4">
               <pre className="font-geist-mono text-xs text-ink">
                 {data.deinterleaved_bits
                   .slice(0, 100)
@@ -579,7 +579,7 @@ export default function Results() {
               }}
               className="inline-flex items-center space-x-2 px-5 py-2.5 rounded-pill font-geist font-weight-500 transition-all duration-200 hover:bg-ink/90 bg-ink text-on-primary dark:hover:bg-ink/20 dark:bg-ink/10 dark:text-ink"
             >
-              <span>💾 Download Full Data</span>
+              <span>Download Full Data</span>
             </button>
           </div>
         </section>
@@ -590,7 +590,7 @@ export default function Results() {
             FEC Decoded Stream
           </h2>
           <div className="space-y-4">
-            <div className="h-96 w-full bg-canvas-elevated overflow-auto p-4">
+            <div className="h-48 w-full bg-canvas-elevated overflow-auto p-4">
               <pre className="font-geist-mono text-xs text-ink">
                 {data.decoded_bits
                   .slice(0, 100)
@@ -612,7 +612,7 @@ export default function Results() {
               }}
               className="inline-flex items-center space-x-2 px-5 py-2.5 rounded-pill font-geist font-weight-500 transition-all duration-200 hover:bg-ink/90 bg-ink text-on-primary dark:hover:bg-ink/20 dark:bg-ink/10 dark:text-ink"
             >
-              <span>💾 Download Full Data</span>
+              <span>Download Full Data</span>
             </button>
           </div>
         </section>
@@ -623,7 +623,7 @@ export default function Results() {
             Correlation/Sync Results
           </h2>
           <div className="space-y-4">
-            <div className="h-96 w-full bg-canvas-elevated overflow-auto p-4">
+            <div className="h-48 w-full bg-canvas-elevated overflow-auto p-4">
               <pre className="font-geist-mono text-xs text-ink">
                 {data.correlate_result!.bits ? (
                   data.correlate_result!.bits
@@ -653,7 +653,7 @@ export default function Results() {
               }}
               className="inline-flex items-center space-x-2 px-5 py-2.5 rounded-pill font-geist font-weight-500 transition-all duration-200 hover:bg-ink/90 bg-ink text-on-primary dark:hover:bg-ink/20 dark:bg-ink/10 dark:text-ink"
             >
-              <span>💾 Download Full Data</span>
+              <span>Download Full Data</span>
             </button>
           </div>
         </section>
