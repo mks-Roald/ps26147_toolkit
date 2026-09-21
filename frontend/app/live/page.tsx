@@ -66,6 +66,28 @@ export default function LiveStreamPage() {
     };
   }, []);
 
+  // Clamp baud_rate to sane ranges when modulation changes
+  useEffect(() => {
+    // Define sane baud_rate ranges for different modulations (in Bd)
+    const modulationRanges: Record<string, { min: number; max: number }> = {
+      BPSK: { min: 1000, max: 100000 },
+      QPSK: { min: 1000, max: 200000 },
+      '8PSK': { min: 1000, max: 300000 },
+      '16-QAM': { min: 1000, max: 400000 },
+      '64-QAM': { min: 1000, max: 500000 },
+      '2-FSK': { min: 1000, max: 50000 },
+      '4-FSK': { min: 1000, max: 100000 },
+    };
+
+    const range = modulationRanges[controls.modulation] || { min: 1000, max: 500000 };
+
+    if (controls.baud_rate < range.min) {
+      handleControlChange('baud_rate', range.min);
+    } else if (controls.baud_rate > range.max) {
+      handleControlChange('baud_rate', range.max);
+    }
+  }, [controls.modulation]);
+
   const handleControlChange = (field: keyof SDRStreamControls, value: any) => {
     const updated = { ...controls, [field]: value };
     setControls(updated);
@@ -306,6 +328,25 @@ export default function LiveStreamPage() {
               value={controls.snr_db}
               onChange={(e) => handleControlChange('snr_db', Number(e.target.value))}
               className="w-full bg-canvas-elevated h-2 rounded-full cursor-pointer bg-gradient-to-r from-cyan-400 via-blue-500 to-fuchsia-500"
+            />
+          </div>
+
+          {/* Symbol Rate Slider */}
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="flex justify-between text-xs font-geist-mono font-weight-500 text-ink-faint">
+                <span>Symbol Rate</span>
+                <span className="font-mono text-fuchsia-400">{controls.baud_rate} Bd</span>
+              </label>
+            </div>
+            <input
+              type="range"
+              min="1000"
+              max="500000"
+              step="1000"
+              value={controls.baud_rate}
+              onChange={(e) => handleControlChange('baud_rate', Number(e.target.value))}
+              className="w-full bg-canvas-elevated h-2 rounded-full cursor-pointer bg-gradient-to-r from-fuchsia-400 via-magenta-500 to-pink-500"
             />
           </div>
 
