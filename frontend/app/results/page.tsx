@@ -255,7 +255,7 @@ export default function Results() {
       </header>
 
       {/* Primary Key Metric Cards */}
-      <section className="grid gap-6">
+      <section className="grid gap-6 grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
         {/* Modulation */}
         <Card className="col-span-1 md:col-span-2 lg:col-span-1 p-6 hover:floating-shadow transition-all duration-300">
           <div className="flex items-center justify-start mb-4">

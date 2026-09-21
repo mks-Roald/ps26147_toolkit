@@ -147,7 +147,7 @@ export default function LiveStreamPage() {
       </header>
 
       {/* Live Telemetry HUD */}
-      <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <section className="grid gap-6 grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
         {/* Detected Modulation */}
         <Card className="p-6 hover:floating-shadow transition-all duration-300">
           <div className="flex items-center justify-start mb-4">
