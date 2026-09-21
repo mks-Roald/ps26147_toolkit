@@ -586,7 +586,7 @@ export default function Results() {
           </div>
         </section>
       )}
-      {data?.correlate_result && (
+      {data && data.correlate_result && (
         <section className="bg-canvas-elevated hairline-border rounded-lg p-6 whisper-shadow">
           <h2 className="font-geist font-weight-600 text-lg text-ink mb-6">
             Correlation/Sync Results
@@ -594,23 +594,23 @@ export default function Results() {
           <div className="space-y-4">
             <div className="h-96 w-full bg-canvas-elevated overflow-auto p-4">
               <pre className="font-geist-mono text-xs text-ink">
-                {data.correlate_result.bits ? (
-                  data.correlate_result.bits
+                {data.correlate_result!.bits ? (
+                  data.correlate_result!.bits
                     .slice(0, 100)
                     .map(bit => bit.toString())
-                    .join('') + (data.correlate_result.bits.length > 100 ? '...' : '')
+                    .join('') + (data.correlate_result!.bits.length > 100 ? '...' : '')
                 ) : (
-                  JSON.stringify(data.correlate_result, null, 2)
+                  JSON.stringify(data.correlate_result!, null, 2)
                 )}
               </pre>
             </div>
             <button
               onClick={() => {
                 let content = '';
-                if (data.correlate_result.bits) {
-                  content = data.correlate_result.bits.join('');
+                if (data.correlate_result!.bits) {
+                  content = data.correlate_result!.bits.join('');
                 } else {
-                  content = JSON.stringify(data.correlate_result, null, 2);
+                  content = JSON.stringify(data.correlate_result!, null, 2);
                 }
                 const blob = new Blob([content], { type: 'text/plain' });
                 const url = URL.createObjectURL(blob);
