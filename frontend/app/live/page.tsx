@@ -18,13 +18,13 @@ import { createSDRWebSocket, SDRFrame, SDRStreamControls } from '@/services/stre
 import Card from '@/components/base/Card';
 
 const MODULATION_BAUD_RANGES: Record<string, { min: number; max: number; step: number }> = {
-  BPSK: { min: 1000, max: 100000, step: 1000 },
-  QPSK: { min: 1000, max: 200000, step: 1000 },
-  '8PSK': { min: 1000, max: 300000, step: 1000 },
-  '16-QAM': { min: 1000, max: 400000, step: 1000 },
-  '64-QAM': { min: 1000, max: 500000, step: 1000 },
-  '2-FSK': { min: 1000, max: 50000, step: 500 },
-  '4-FSK': { min: 1000, max: 100000, step: 500 },
+  BPSK:  { min: 1000, max: 100000, step: 1000 },
+  QPSK:  { min: 1000, max: 200000, step: 1000 },
+  '8PSK':  { min: 1000, max: 300000, step: 1000 },
+  '16QAM': { min: 1000, max: 400000, step: 1000 },
+  '64QAM': { min: 1000, max: 500000, step: 1000 },
+  FSK2:  { min: 1000, max: 50000,  step: 500 },
+  FSK4:  { min: 1000, max: 100000, step: 500 },
 };
 
 export default function LiveStreamPage() {
@@ -76,15 +76,12 @@ export default function LiveStreamPage() {
     };
   }, []);
 
-  // Clamp baud_rate to sane ranges when modulation changes
+  // Reset baud_rate to the midpoint of the new modulation's range whenever modulation changes
   useEffect(() => {
     const range = MODULATION_BAUD_RANGES[controls.modulation] || { min: 1000, max: 500000, step: 1000 };
-
-    if (controls.baud_rate < range.min) {
-      handleControlChange('baud_rate', range.min);
-    } else if (controls.baud_rate > range.max) {
-      handleControlChange('baud_rate', range.max);
-    }
+    const midpoint = Math.round((range.min + range.max) / 2 / range.step) * range.step;
+    handleControlChange('baud_rate', midpoint);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [controls.modulation]);
 
   const handleControlChange = (field: keyof SDRStreamControls, value: any) => {
@@ -226,7 +223,12 @@ export default function LiveStreamPage() {
                   <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
                   <XAxis type="number" dataKey="i" domain={[-2, 2]} tick={{ fill: '#64748b', fontSize: 10 }} />
                   <YAxis type="number" dataKey="q" domain={[-2, 2]} tick={{ fill: '#64748b', fontSize: 10 }} />
-                  <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', fontSize: '12px' }} />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', fontSize: '12px', color: '#e2e8f0' }}
+                    itemStyle={{ color: '#e2e8f0' }}
+                    labelStyle={{ color: '#94a3b8' }}
+                    cursor={{ strokeDasharray: '3 3', stroke: '#334155' }}
+                  />
                   <Scatter data={constellationData} fill="#00f2fe" isAnimationActive={false} />
                 </ScatterChart>
               </ResponsiveContainer>
