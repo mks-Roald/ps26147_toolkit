@@ -78,7 +78,8 @@ export default function LiveStreamPage() {
 
   // Reset baud_rate to the midpoint of the new modulation's range whenever modulation changes
   useEffect(() => {
-    const range = MODULATION_BAUD_RANGES[controls.modulation] || { min: 1000, max: 500000, step: 1000 };
+    const modKey = controls.modulation || 'QPSK';
+    const range = MODULATION_BAUD_RANGES[modKey] || { min: 1000, max: 500000, step: 1000 };
     const midpoint = Math.round((range.min + range.max) / 2 / range.step) * range.step;
     handleControlChange('baud_rate', midpoint);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -225,8 +226,8 @@ export default function LiveStreamPage() {
                   <YAxis type="number" dataKey="q" domain={[-2, 2]} tick={{ fill: '#64748b', fontSize: 10 }} />
                   <Tooltip
                     contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', fontSize: '12px', color: '#e2e8f0' }}
-                    itemStyle={{ color: '#e2e8f0' }}
-                    labelStyle={{ color: '#94a3b8' }}
+                    itemStyle={{ color: '#94a3b8' }}
+                    labelStyle={{ color: '#e2e8f0' }}
                     cursor={{ strokeDasharray: '3 3', stroke: '#334155' }}
                   />
                   <Scatter data={constellationData} fill="#00f2fe" isAnimationActive={false} />
@@ -249,7 +250,11 @@ export default function LiveStreamPage() {
                   <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
                   <XAxis dataKey="x" tick={{ fill: '#64748b', fontSize: 10 }} />
                   <YAxis domain={[-1.5, 1.5]} tick={{ fill: '#64748b', fontSize: 10 }} />
-                  <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', fontSize: '12px' }} />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', fontSize: '12px', color: '#e2e8f0' }}
+                    itemStyle={{ color: '#94a3b8' }}
+                    labelStyle={{ color: '#e2e8f0' }}
+                  />
                   <Line type="monotone" dataKey="y" stroke="#f355da" strokeWidth={1.5} dot={false} isAnimationActive={false} />
                 </LineChart>
               </ResponsiveContainer>
@@ -276,7 +281,11 @@ export default function LiveStreamPage() {
                   <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
                   <XAxis dataKey="freq" tick={{ fill: '#64748b', fontSize: 10 }} />
                   <YAxis domain={[-80, 0]} tick={{ fill: '#64748b', fontSize: 10 }} />
-                  <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', fontSize: '12px' }} />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', fontSize: '12px', color: '#e2e8f0' }}
+                    itemStyle={{ color: '#94a3b8' }}
+                    labelStyle={{ color: '#e2e8f0' }}
+                  />
                   <Area type="monotone" dataKey="psd" stroke="#38bdf8" strokeWidth={1.5} fill="url(#livePsdGrad)" isAnimationActive={false} />
                 </AreaChart>
               </ResponsiveContainer>
@@ -342,9 +351,9 @@ export default function LiveStreamPage() {
             </div>
             <input
               type="range"
-              min={MODULATION_BAUD_RANGES[controls.modulation]?.min ?? 1000}
-              max={MODULATION_BAUD_RANGES[controls.modulation]?.max ?? 500000}
-              step={MODULATION_BAUD_RANGES[controls.modulation]?.step ?? 1000}
+              min={MODULATION_BAUD_RANGES[controls.modulation || 'QPSK']?.min ?? 1000}
+              max={MODULATION_BAUD_RANGES[controls.modulation || 'QPSK']?.max ?? 500000}
+              step={MODULATION_BAUD_RANGES[controls.modulation || 'QPSK']?.step ?? 1000}
               value={controls.baud_rate}
               onChange={(e) => handleControlChange('baud_rate', Number(e.target.value))}
               className="w-full bg-canvas-elevated h-2 rounded-full cursor-pointer bg-gradient-to-r from-fuchsia-400 via-magenta-500 to-pink-500"

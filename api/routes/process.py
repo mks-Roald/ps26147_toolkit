@@ -5,6 +5,7 @@ from api.schemas import (
     ProcessResponse,
     ConstellationPoint,
     PsdPoint,
+    WaterfallData,
     AsyncJobResponse,
     JobStatusResponse,
 )
@@ -67,6 +68,35 @@ def _process_signal_core(contents: bytes, filename: str, sample_rate_hint: float
         for f, p in zip(freqs[::psd_step], psd_db[::psd_step])
     ]
 
+    # 6. Spectrogram / Waterfall Data (downsampled to ~80x80 bins)
+    waterfall_obj = None
+    try:
+        nperseg = min(256, max(16, len(sig)))
+        noverlap = nperseg // 2
+        t_spec, f_spec, Sxx_db = feature_extractor.compute_spectrogram(
+            sig,
+            fs=sample_rate,
+            nperseg=nperseg,
+            noverlap=noverlap,
+        )
+        if len(f_spec) > 80:
+            f_idx = np.round(np.linspace(0, len(f_spec) - 1, 80)).astype(int)
+            f_spec = f_spec[f_idx]
+            Sxx_db = Sxx_db[f_idx, :]
+
+        if len(t_spec) > 80:
+            t_idx = np.round(np.linspace(0, len(t_spec) - 1, 80)).astype(int)
+            t_spec = t_spec[t_idx]
+            Sxx_db = Sxx_db[:, t_idx]
+
+        waterfall_obj = WaterfallData(
+            time=[round(float(x), 6) for x in t_spec],
+            frequency=[round(float(y), 2) for y in f_spec],
+            power_db=[[round(float(v), 2) for v in row] for row in Sxx_db],
+        )
+    except Exception:
+        waterfall_obj = None
+
     return ProcessResponse(
         modulation=mod,
         confidence=conf,
@@ -82,6 +112,7 @@ def _process_signal_core(contents: bytes, filename: str, sample_rate_hint: float
         waveform_data=waveform_subset,
         constellation_data=constellation_pts,
         psd_data=psd_pts,
+        waterfall_data=waterfall_obj,
     )
 
 

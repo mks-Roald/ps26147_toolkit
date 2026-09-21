@@ -10,7 +10,9 @@
   },
   "dependencies": {
     "@tailwindcss/postcss": "^4.3.3",
+    "@types/plotly.js-dist-min": "^2.3.4",
     "framer-motion": "^11.18.2",
+    "plotly.js-dist-min": "^4.1.1",
     "recharts": "^2.15.4",
     "swr": "^2.5.1"
   },

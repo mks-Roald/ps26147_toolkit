@@ -17,8 +17,9 @@ import {
   AreaChart,
   Area,
 } from 'recharts';
-import { ProcessResult } from '@/services/api';
+import { ProcessResult, processFile } from '@/services/api';
 import Card from '@/components/base/Card';
+import WaterfallPlot from '@/components/WaterfallPlot';
 
 export default function Results() {
   const router = useRouter();
@@ -120,7 +121,7 @@ export default function Results() {
     if (storedSampleRate) {
       const parsed = parseInt(storedSampleRate, 10);
       if (!isNaN(parsed) && parsed > 0) {
-        setData(prev => ({ ...prev, sample_rate: parsed }));
+        setData(prev => prev ? { ...prev, sample_rate: parsed } : null);
         // Clear the stored value to avoid re-applying on every render
         sessionStorage.removeItem('lastSampleRate');
       }
@@ -387,7 +388,11 @@ export default function Results() {
                   <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
                   <XAxis dataKey="x" tick={{ fill: '#64748b', fontSize: 10 }} label={{ value: 'Sample Index', position: 'insideBottom', offset: -5, fill: '#64748b', fontSize: 10 }} />
                   <YAxis tick={{ fill: '#64748b', fontSize: 10 }} domain={[-1.1, 1.1]} />
-                  <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', fontSize: '12px', fontFamily: 'monospace' }} />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', fontSize: '12px', fontFamily: 'monospace', color: '#e2e8f0' }}
+                    itemStyle={{ color: '#94a3b8' }}
+                    labelStyle={{ color: '#e2e8f0' }}
+                  />
                   <Line type="monotone" dataKey="y" name="Amplitude" stroke="#00f2fe" strokeWidth={1.5} dot={false} isAnimationActive={false} />
                 </LineChart>
               </ResponsiveContainer>
@@ -411,7 +416,11 @@ export default function Results() {
                   <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
                   <XAxis dataKey="freq" tick={{ fill: '#64748b', fontSize: 10 }} label={{ value: 'Frequency (Hz)', position: 'insideBottom', offset: -5, fill: '#64748b', fontSize: 10 }} axisLine={{ stroke: '#64748b' }} />
                   <YAxis tick={{ fill: '#64748b', fontSize: 10 }} label={{ value: 'dB/Hz', angle: -90, position: 'insideLeft', fill: '#64748b', fontSize: 10 }} axisLine={{ stroke: '#64748b' }} />
-                  <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', fontSize: '12px', fontFamily: 'monospace' }} />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', fontSize: '12px', fontFamily: 'monospace', color: '#e2e8f0' }}
+                    itemStyle={{ color: '#94a3b8' }}
+                    labelStyle={{ color: '#e2e8f0' }}
+                  />
                   <Area type="monotone" dataKey="psd" name="PSD (dB)" stroke="#f355da" strokeWidth={1.5} fillOpacity={1} fill="url(#psdGrad)" isAnimationActive={false} />
                 </AreaChart>
               </ResponsiveContainer>
@@ -430,7 +439,12 @@ export default function Results() {
                     <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
                     <XAxis type="number" dataKey="i" name="In-Phase (I)" domain={[-2, 2]} tick={{ fill: '#64748b', fontSize: 10 }} />
                     <YAxis type="number" dataKey="q" name="Quadrature (Q)" domain={[-2, 2]} tick={{ fill: '#64748b', fontSize: 10 }} />
-                    <Tooltip cursor={{ strokeDasharray: '3 3' }} contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', fontSize: '12px', fontFamily: 'monospace' }} />
+                    <Tooltip
+                      cursor={{ strokeDasharray: '3 3', stroke: '#334155' }}
+                      contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', fontSize: '12px', fontFamily: 'monospace', color: '#e2e8f0' }}
+                      itemStyle={{ color: '#94a3b8' }}
+                      labelStyle={{ color: '#e2e8f0' }}
+                    />
                     <Scatter name="I/Q Symbols" data={constellationData} fill="#38bdf8" />
                   </ScatterChart>
                 </ResponsiveContainer>
@@ -442,6 +456,9 @@ export default function Results() {
           </div>
         )}
       </section>
+
+      {/* Spectrogram & 3D Waterfall Display Section */}
+      <WaterfallPlot data={data.waterfall_data} />
 
       {/* Signal Metadata Details Table */}
       <section className="bg-canvas-elevated hairline-border rounded-lg p-6 whisper-shadow">
