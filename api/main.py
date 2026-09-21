@@ -27,9 +27,10 @@ def health():
     return {"status": "ok"}
 
 # Import and include routers
-from api.routes import process, classify, decode, stream
+from api.routes import process, classify, decode, stream, correlate
 
 app.include_router(process.router, prefix="/process")
 app.include_router(classify.router, prefix="/classify")
 app.include_router(decode.router, prefix="/decode")
 app.include_router(stream.router, prefix="/stream")
+app.include_router(correlate.router, prefix="/correlate")
