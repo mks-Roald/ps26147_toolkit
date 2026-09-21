@@ -504,7 +504,7 @@ export default function Results() {
             </div>
             <button
               onClick={() => {
-                const bitsString = data!.demodulated_bits.join('');
+                const bitsString = data.demodulated_bits?.join('') || '';
                 const blob = new Blob([bitsString], { type: 'text/plain' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
@@ -537,7 +537,7 @@ export default function Results() {
             </div>
             <button
               onClick={() => {
-                const bitsString = data!.deinterleaved_bits.join('');
+                const bitsString = data.deinterleaved_bits?.join('') || '';
                 const blob = new Blob([bitsString], { type: 'text/plain' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
@@ -570,7 +570,7 @@ export default function Results() {
             </div>
             <button
               onClick={() => {
-                const bitsString = data!.decoded_bits.join('');
+                const bitsString = data.decoded_bits?.join('') || '';
                 const blob = new Blob([bitsString], { type: 'text/plain' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
