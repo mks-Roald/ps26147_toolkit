@@ -118,7 +118,7 @@ export default function LiveStreamPage() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <div className="inline-flex items-center space-x-3 px-4 py-2 rounded-full bg-cyan-950/60 border border-cyan-500/30 text-cyan-400 text-xs font-geist-mono font-weight-500 mb-4">
-              <span>🛰️ REAL-TIME SDR STREAMING PIPELINE</span>
+              <span>REAL-TIME SDR STREAMING PIPELINE</span>
             </div>
             <h1 className="text-3xl sm:text-4xl font-geist font-weight-600 tracking-tighter text-ink">
               Live RF Signal Oscilloscope & Constellation
@@ -147,7 +147,7 @@ export default function LiveStreamPage() {
       </header>
 
       {/* Live Telemetry HUD */}
-      <section className="grid gap-6 grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+      <section className="grid gap-6 grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
         {/* Detected Modulation */}
         <Card className="p-6 hover:floating-shadow transition-all duration-300">
           <div className="flex items-center justify-start mb-4">
