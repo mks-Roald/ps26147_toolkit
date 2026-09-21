@@ -281,7 +281,7 @@ export default function WaterfallPlot({ data, className = '', viewMode }: Waterf
           </p>
         </div>
 
-        {/* View mode and Colormap toggles - only show if viewMode prop is not provided */}
+        {/* View mode toggle - only show if viewMode prop is not provided */}
         {viewMode === undefined && (
           <div className="flex flex-wrap items-center gap-3">
             {/* 2D / 3D Switch */}
@@ -307,26 +307,26 @@ export default function WaterfallPlot({ data, className = '', viewMode }: Waterf
                 🏔️ 3D Surface
               </button>
             </div>
-
-            {/* Colormap selection */}
-            <div className="flex items-center space-x-2">
-              <label className="text-xs font-geist-mono text-ink-faint hidden sm:inline">
-                Palette:
-              </label>
-              <select
-                value={colorScale}
-                onChange={(e) => setColorScale(e.target.value as ColorScheme)}
-                className="bg-canvas border border-hairline rounded-sm px-2.5 py-1.5 text-xs font-geist-mono text-ink focus:outline-none focus:ring-2 focus-ring-blue transition-colors duration-200"
-              >
-                <option value="Viridis">Viridis (Default)</option>
-                <option value="Jet">Jet (Classic Waterfall)</option>
-                <option value="Plasma">Plasma</option>
-                <option value="Turbo">Turbo</option>
-                <option value="Inferno">Inferno</option>
-              </select>
-            </div>
           </div>
         )}
+
+        {/* Colormap selection - always show */}
+        <div className="flex items-center space-x-2">
+          <label className="text-xs font-geist-mono text-ink-faint hidden sm:inline">
+            Palette:
+          </label>
+          <select
+            value={colorScale}
+            onChange={(e) => setColorScale(e.target.value as ColorScheme)}
+            className="bg-canvas border border-hairline rounded-sm px-2.5 py-1.5 text-xs font-geist-mono text-ink focus:outline-none focus:ring-2 focus-ring-blue transition-colors duration-200"
+          >
+            <option value="Viridis">Viridis (Default)</option>
+            <option value="Jet">Jet (Classic Waterfall)</option>
+            <option value="Plasma">Plasma</option>
+            <option value="Turbo">Turbo</option>
+            <option value="Inferno">Inferno</option>
+          </select>
+        </div>
 
       </div>
 
