@@ -104,6 +104,13 @@ export default function UploadZone({
       sessionStorage.setItem('lastFileName', file.name);
       sessionStorage.setItem('lastFileSize', String(file.size));
 
+      // Store original file as base64 for later use (sample rate re-processing, FEC decoder)
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        sessionStorage.setItem('lastFileBase64', reader.result?.toString() || '');
+      };
+      reader.readAsDataURL(file);
+
       if (onSuccess) {
         onSuccess(res);
       } else {
