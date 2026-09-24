@@ -3,7 +3,7 @@ import './globals.css';
 import Layout from '@/components/Layout';
 
 export const metadata: Metadata = {
-  title: 'SIH PS26147 - Signal Analysis Dashboard',
+  title: 'SIGextract - Signal Analysis Dashboard',
   description: 'Parametric RF Signal Processing, Modulation Classification, Demodulation & FEC Decoding',
 };
 

@@ -49,7 +49,7 @@ export default function Layout({ children }: LayoutProps) {
             </div>
             <div>
               <Link href="/" className="font-extrabold text-lg tracking-tighter bg-gradient-to-r from-cyan-400 via-blue-300 to-fuchsia-400 bg-clip-text text-transparent">
-                SIH PS26147
+                SIGextract
               </Link>
               <span className="hidden sm:inline-block ml-2 text-xs font-geist-mono font-weight-500 text-ink-faint border border-hairline/60 rounded px-2 py-0.5">
                 v0.2.0
@@ -92,7 +92,7 @@ export default function Layout({ children }: LayoutProps) {
 
       {/* Footer */}
       <footer className="border-t border-hairline bg-canvas/90 py-8 text-center text-xs font-geist-mono font-weight-400 text-ink-faint">
-        <p>SIH PS26147 Signal Processing & Demodulation Engine • Automated RF Signal Pipeline</p>
+        <p>SIGextract Signal Processing & Demodulation Engine • Automated RF Signal Pipeline</p>
       </footer>
     </div>
   );
