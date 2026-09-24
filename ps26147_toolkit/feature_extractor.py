@@ -225,7 +225,7 @@ def extract_features(signal: np.ndarray, fs: float = 1000000.0, fc: float = None
     else:
         sig_c = signal
 
-    max_samples = 32768
+    max_samples = 131072
     sig = sig_c[:max_samples] if len(sig_c) > max_samples else sig_c
 
     cum = compute_cumulants(sig, fs=fs, fc=fc)
@@ -276,7 +276,7 @@ def compute_spectrogram(
     noverlap: int = 128,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Return time, frequency, and magnitude spectrogram (in dB)."""
-    max_samples = 500000
+    max_samples = 2000000
     sig_chunk = signal[:max_samples] if len(signal) > max_samples else signal
     is_complex = np.iscomplexobj(sig_chunk)
     f, t, Sxx = spectrogram(
