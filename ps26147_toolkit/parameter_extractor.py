@@ -504,7 +504,7 @@ def estimate_baud_rate(
     if len(signal) < 64 or fs <= 0:
         return 0.0
 
-    max_samples = 65536
+    max_samples = 262144
     sig_chunk = signal[:max_samples] if len(signal) > max_samples else signal
 
     # For real signals, obtain complex analytic signal via Hilbert transform
