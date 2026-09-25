@@ -1,3 +1,4 @@
+# Core Signal Processing & ML Dependencies
 numpy
 scipy
 matplotlib
@@ -12,6 +13,8 @@ uv
 streamlit
 plotly
 joblib
+
+# Backend API & Server Dependencies
 fastapi
 uvicorn[standard]
 python-multipart

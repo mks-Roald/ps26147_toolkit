@@ -18,6 +18,9 @@ ps26147_toolkit.egg-info/dependency_links.txt
 ps26147_toolkit.egg-info/entry_points.txt
 ps26147_toolkit.egg-info/requires.txt
 ps26147_toolkit.egg-info/top_level.txt
+tests/test_api_correlate.py
+tests/test_api_decode.py
+tests/test_api_waterfall.py
 tests/test_bandwidth_calibration.py
 tests/test_classifier.py
 tests/test_cli.py
