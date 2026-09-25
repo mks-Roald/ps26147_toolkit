@@ -23,6 +23,13 @@ dependencies = [
     "tqdm",
     "uv",
     "streamlit",
+    "plotly",
+    "joblib",
+    "fastapi",
+    "uvicorn[standard]",
+    "python-multipart",
+    "pydantic",
+    "websockets",
 ]
 
 [project.scripts]

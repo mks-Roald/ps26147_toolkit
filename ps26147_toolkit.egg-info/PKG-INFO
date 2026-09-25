@@ -18,6 +18,13 @@ Requires-Dist: soundfile
 Requires-Dist: tqdm
 Requires-Dist: uv
 Requires-Dist: streamlit
+Requires-Dist: plotly
+Requires-Dist: joblib
+Requires-Dist: fastapi
+Requires-Dist: uvicorn[standard]
+Requires-Dist: python-multipart
+Requires-Dist: pydantic
+Requires-Dist: websockets
 
 # README for the PS26147 Toolkit
 
