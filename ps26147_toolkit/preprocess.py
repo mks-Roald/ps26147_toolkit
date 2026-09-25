@@ -263,30 +263,40 @@ def load_wav(
     file_path: str | Path,
     center_freq_hint: float = 0.0,
 ) -> tuple[np.ndarray, SignalMetadata]:
-    """Load a ``.wav`` audio file.
-
-    Returns a mono ``float32`` signal and associated :class:`SignalMetadata`.
+    """Load a .wav file. Stereo files are treated as I/Q captures
+    (channel 0 = I, channel 1 = Q) and reconstructed as complex64.
+    True mono audio files stay real float32.
     """
     file_path = Path(file_path)
     sr, sig = wav.read(str(file_path))
-
-    if sig.ndim > 1:
-        sig = np.mean(sig, axis=1)
-
     orig_dtype = sig.dtype
-    sig = sig.astype(np.float32)
-    if np.issubdtype(orig_dtype, np.integer):
-        sig = sig / np.iinfo(orig_dtype).max
+
+    if sig.ndim > 1 and sig.shape[1] >= 2:
+        i_ch = sig[:, 0].astype(np.float32)
+        q_ch = sig[:, 1].astype(np.float32)
+        if np.issubdtype(orig_dtype, np.integer):
+            scale = np.iinfo(orig_dtype).max
+            i_ch /= scale
+            q_ch /= scale
+        sig_out = (i_ch + 1j * q_ch).astype(np.complex64)
+        source_format = "wav_iq"
+    else:
+        if sig.ndim > 1:
+            sig = np.mean(sig, axis=1)
+        sig_out = sig.astype(np.float32)
+        if np.issubdtype(orig_dtype, np.integer):
+            sig_out = sig_out / np.iinfo(orig_dtype).max
+        source_format = "wav"
 
     meta = SignalMetadata(
         fs=float(sr),
         center_freq_hint=center_freq_hint,
-        source_format="wav",
+        source_format=source_format,
         dtype=str(orig_dtype),
-        duration_sec=len(sig) / float(sr),
-        num_samples=len(sig),
+        duration_sec=len(sig_out) / float(sr),
+        num_samples=len(sig_out),
     )
-    return sig, meta
+    return sig_out, meta
 
 
 # ---------------------------------------------------------------------------
