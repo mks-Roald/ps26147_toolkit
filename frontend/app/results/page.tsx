@@ -207,12 +207,28 @@ export default function Results() {
               <>
                 <button
                   onClick={() => {
-                    const json = JSON.stringify(data, null, 2);
+                    if (!data) return;
+                    // Individual signal information (basic parameters only) for JSON
+                    const basicParams = {
+                      modulation: data.modulation ?? '',
+                      confidence: data.confidence ?? 0,
+                      snr_db: data.snr_db ?? null,
+                      baud_rate: data.baud_rate ?? null,
+                      center_frequency_hz: data.center_frequency_hz ?? null,
+                      bandwidth_hz: data.bandwidth_hz ?? null,
+                      bandwidth_3db_hz: data.bandwidth_3db_hz ?? null,
+                      num_samples: data.num_samples,
+                      duration_sec: data.duration_sec,
+                      sample_rate: data.sample_rate
+                    };
+                    const json = JSON.stringify(basicParams, null, 2);
                     const blob = new Blob([json], { type: 'application/json' });
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement('a');
                     a.href = url;
-                    a.download = 'signal-analysis.json';
+                    // Use actual file name for download
+                    const cleanFileName = fileName.replace(/\.[^/.]+$/, ""); // Remove extension
+                    a.download = `${cleanFileName}-individual-info.json`;
                     a.click();
                     URL.revokeObjectURL(url);
                   }}
@@ -223,24 +239,70 @@ export default function Results() {
                 <button
                   onClick={() => {
                     if (!data) return;
-                    const rows = [
-                      ['Parameter', 'Value'],
-                      ['Modulation', data.modulation ?? ''],
-                      ['Confidence (%)', ((data.confidence ?? 0) * 100).toFixed(1)],
-                      ['SNR (dB)', data.snr_db !== null && data.snr_db !== undefined ? data.snr_db.toFixed(1) : ''],
-                      ['Baud Rate', data.baud_rate !== null && data.baud_rate !== undefined && data.baud_rate > 0 ? (data.baud_rate >= 1000 ? `${(data.baud_rate / 1000).toFixed(2)} kBd` : `${data.baud_rate.toFixed(1)} Bd`) : ''],
-                      ['Center Frequency', data.center_frequency_hz !== null && data.center_frequency_hz !== undefined ? (Math.abs(data.center_frequency_hz) >= 1e6 ? `${(data.center_frequency_hz / 1e6).toFixed(2)} MHz` : `${(data.center_frequency_hz / 1e3).toFixed(1)} kHz`) : ''],
-                      ['Bandwidth', data.bandwidth_hz !== null && data.bandwidth_hz !== undefined && data.bandwidth_hz > 0 ? (data.bandwidth_hz >= 1e6 ? `${(data.bandwidth_hz / 1e6).toFixed(2)} MHz` : `${(data.bandwidth_hz / 1e3).toFixed(1)} kHz`) : ''],
-                      ['Sample Rate (Hz)', data.sample_rate.toLocaleString()],
-                      ['Duration (s)', data.duration_sec.toFixed(4)],
-                      ['Total Samples', data.num_samples.toLocaleString()],
-                    ];
+                    // Overall all parameters including bit streams for CSV
+                    const rows = [];
+
+                    // Basic parameters
+                    rows.push(['Parameter', 'Value']);
+                    rows.push(['Modulation', data.modulation ?? '']);
+                    rows.push(['Confidence (%)', ((data.confidence ?? 0) * 100).toFixed(1)]);
+                    rows.push(['SNR (dB)', data.snr_db !== null && data.snr_db !== undefined ? data.snr_db.toFixed(1) : '']);
+                    rows.push(['Baud Rate', data.baud_rate !== null && data.baud_rate !== undefined && data.baud_rate > 0 ? (data.baud_rate >= 1000 ? `${(data.baud_rate / 1000).toFixed(2)} kBd` : `${data.baud_rate.toFixed(1)} Bd`) : '']);
+                    rows.push(['Center Frequency', data.center_frequency_hz !== null && data.center_frequency_hz !== undefined ? (Math.abs(data.center_frequency_hz) >= 1e6 ? `${(data.center_frequency_hz / 1e6).toFixed(2)} MHz` : `${(data.center_frequency_hz / 1e3).toFixed(1)} kHz`) : '']);
+                    rows.push(['Bandwidth', data.bandwidth_hz !== null && data.bandwidth_hz !== undefined && data.bandwidth_hz > 0 ? (data.bandwidth_hz >= 1e6 ? `${(data.bandwidth_hz / 1e6).toFixed(2)} MHz` : `${(data.bandwidth_hz / 1e3).toFixed(1)} kHz`) : '']);
+                    rows.push(['Bandwidth 3dB (Hz)', data.bandwidth_3db_hz !== null && data.bandwidth_3db_hz !== undefined ? data.bandwidth_3db_hz.toLocaleString() : '']);
+                    rows.push(['Sample Rate (Hz)', data.sample_rate.toLocaleString()]);
+                    rows.push(['Duration (s)', data.duration_sec.toFixed(4)]);
+                    rows.push(['Total Samples', data.num_samples.toLocaleString()]);
+                    rows.push([]); // Empty row for separation
+
+                    // Demodulated bits
+                    if (data.demodulated_bits) {
+                      rows.push(['Demodulated Bits', data.demodulated_bits.join('')]);
+                      rows.push(['Demodulated Bits Count', data.demodulated_bits_count ?? 0]);
+                      rows.push([]); // Empty row
+                    }
+
+                    // Deinterleaved bits
+                    if (data.deinterleaved_bits) {
+                      rows.push(['Deinterleaved Bits', data.deinterleaved_bits.join('')]);
+                      rows.push(['Deinterleaved Bits Count', data.deinterleaved_bits_count ?? 0]);
+                      rows.push([]); // Empty row
+                    }
+
+                    // Decoded bits (FEC output)
+                    if (data.decoded_bits) {
+                      rows.push(['Decoded Bits (FEC Output)', data.decoded_bits.join('')]);
+                      rows.push(['Decoded Bits Count', data.decoded_bits.length]);
+                      rows.push([]); // Empty row
+                    }
+
+                    // Correlate result bits
+                    if (data.correlate_result && data.correlate_result.bits) {
+                      rows.push(['Correlate Result Bits', data.correlate_result.bits.join('')]);
+                      rows.push(['Correlate Result Bits Count', data.correlate_result.num_bits ?? 0]);
+                      rows.push([]); // Empty row
+                    }
+
+                    // Add correlate result details if no bits
+                    if (data.correlate_result && (!data.correlate_result.bits || data.correlate_result.bits.length === 0)) {
+                      rows.push(['Correlate Result Status', data.correlate_result.status ?? '']);
+                      rows.push(['Correlate Sync Found', data.correlate_result.sync_found ? 'true' : 'false']);
+                      rows.push(['Correlate Peak Indices', data.correlate_result.peak_indices.join(',')]);
+                      rows.push(['Correlate Num Frames', data.correlate_result.num_frames ?? 0]);
+                      rows.push(['Correlate Max Correlation', data.correlate_result.max_correlation ?? 0]);
+                      rows.push(['Correlate Is Inverted', data.correlate_result.is_inverted ? 'true' : 'false']);
+                      rows.push([]); // Empty row
+                    }
+
                     const csvContent = rows.map(e => e.join(',')).join('\n');
                     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement('a');
                     a.href = url;
-                    a.download = 'signal-summary.csv';
+                    // Use actual file name for download
+                    const cleanFileName = fileName.replace(/\.[^/.]+$/, ""); // Remove extension
+                    a.download = `${cleanFileName}-complete-summary.csv`;
                     a.click();
                     URL.revokeObjectURL(url);
                   }}
