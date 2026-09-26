@@ -23,8 +23,8 @@ const MODULATION_BAUD_RANGES: Record<string, { min: number; max: number; step: n
   '8PSK':  { min: 1000, max: 300000, step: 1000 },
   '16QAM': { min: 1000, max: 400000, step: 1000 },
   '64QAM': { min: 1000, max: 500000, step: 1000 },
-  FSK2:  { min: 1000, max: 50000,  step: 500 },
-  FSK4:  { min: 1000, max: 100000, step: 500 },
+  '2FSK':  { min: 1000, max: 50000,  step: 500 },
+  '4FSK':  { min: 1000, max: 100000, step: 500 },
 };
 
 export default function LiveStreamPage() {
@@ -317,8 +317,8 @@ export default function LiveStreamPage() {
               <option value="8PSK">8PSK</option>
               <option value="16QAM">16-QAM</option>
               <option value="64QAM">64-QAM</option>
-              <option value="FSK2">2-FSK</option>
-              <option value="FSK4">4-FSK</option>
+              <option value="2FSK">2-FSK</option>
+              <option value="4FSK">4-FSK</option>
             </select>
           </div>
 
