@@ -12,7 +12,7 @@ interface WaterfallPlotProps {
 }
 
 type PlotViewMode = '2d' | '3d';
-type ColorScheme = 'Viridis' | 'Jet' | 'Plasma' | 'Turbo' | 'Inferno';
+type ColorScheme = 'Viridis' | 'Jet' | 'Plasma';
 
 export default function WaterfallPlot({ data, className = '', viewMode }: WaterfallPlotProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -323,8 +323,6 @@ export default function WaterfallPlot({ data, className = '', viewMode }: Waterf
             <option value="Viridis">Viridis (Default)</option>
             <option value="Jet">Jet (Classic Waterfall)</option>
             <option value="Plasma">Plasma</option>
-            <option value="Turbo">Turbo</option>
-            <option value="Inferno">Inferno</option>
           </select>
         </div>
 
