@@ -1,6 +1,6 @@
 # Deployment Guide — SIH Signal Analysis Suite
 
-This document covers running and deploying the **SIH PS26147 Signal Processing Backend & Web Dashboard** across local and production environments.
+This document covers running and deploying the **SIGextract Signal Processing Backend & Web Dashboard** across local and production environments.
 
 ---
 

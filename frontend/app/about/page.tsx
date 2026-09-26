@@ -34,7 +34,7 @@ export default function About() {
       {/* Header */}
       <section className="space-y-4 text-center">
         <h1 className="text-3xl sm:text-4xl font-geist font-weight-600 tracking-tighter text-ink">
-          About SIH PS26147 Toolkit
+          About SIGextract Toolkit
         </h1>
         <p className="text-ink-muted text-base max-w-2xl mx-auto leading-relaxed">
           Autonomous RF Signal Intelligence, Modulation Recognition, and Multi-Stage Waveform Decoding Suite.

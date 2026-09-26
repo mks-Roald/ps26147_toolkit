@@ -28,11 +28,62 @@ export default function UploadZone({
   const [sampleRate, setSampleRateState] = useState<number>(sampleRateProp ?? 1000000);
   const [useAsync, setUseAsync] = useState<boolean>(useAsyncProp ?? true);
   const [isCustomRate, setIsCustomRate] = useState<boolean>(false);
+  const [customRateInput, setCustomRateInput] = useState<string>('');
+  const [isAutoDetected, setIsAutoDetected] = useState<boolean>(false);
   const [isDragging, setIsDragging] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [progressPercent, setProgressPercent] = useState<number>(0);
   const [progressStage, setProgressStage] = useState<string>('');
+
+  // Utility function to extract sample rate from WAV file
+  const getSampleRateFromWav = async (file: File): Promise<number | null> => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const array = e.target?.result as ArrayBuffer;
+        if (!array) { resolve(null); return; }
+        // RIFF header: "RIFF", then file size, then "WAVE"
+        // Then chunks: we look for "fmt " chunk.
+        const view = new DataView(array);
+        // Check RIFF and WAVE
+        if (
+          getString(view, 0, 4) !== "RIFF" ||
+          getString(view, 8, 4) !== "WAVE"
+        ) {
+          resolve(null);
+          return;
+        }
+        // Search for fmt chunk
+        let offset = 12;
+        while (offset < view.byteLength - 8) {
+          const chunkId = getString(view, offset, 4);
+          const chunkSize = view.getUint32(offset + 4, true); // little-endian
+          if (chunkId === "fmt ") {
+            // Audio format (2 bytes) at offset+8, sample rate (4 bytes) at offset+12
+            const sampleRate = view.getUint32(offset + 12, true);
+            resolve(sampleRate);
+            return;
+          }
+          // Move to next chunk: align to even boundary
+          offset += 8 + Math.ceil(chunkSize / 2) * 2;
+        }
+        resolve(null);
+      };
+      reader.onerror = () => resolve(null);
+      // Read only enough bytes to find fmt chunk; we'll read first 64 KB which is more than enough.
+      const slice = file.slice(0, 64 * 1024);
+      reader.readAsArrayBuffer(slice);
+    });
+  };
+
+  function getString(view: DataView, offset: number, length: number): string {
+    let str = "";
+    for (let i = 0; i < length; i++) {
+      str += String.fromCharCode(view.getUint8(offset + i));
+    }
+    return str;
+  }
 
   // Sync prop changes to state (if parent updates)
   useEffect(() => {
@@ -50,6 +101,13 @@ export default function UploadZone({
     }
   }, [sampleRate, setSampleRateProp]);
 
+  // Initialize customRateInput when entering custom mode or when sampleRate changes
+  useEffect(() => {
+    if (isCustomRate) {
+      setCustomRateInput(sampleRate.toString());
+    }
+  }, [isCustomRate, sampleRate]);
+
   const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setIsDragging(true);
@@ -60,17 +118,41 @@ export default function UploadZone({
     setIsDragging(false);
   };
 
-  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
+  const handleDrop = async (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setIsDragging(false);
     if (e.dataTransfer.files?.[0]) {
-      setFile(e.dataTransfer.files[0]);
+      const file = e.dataTransfer.files[0];
+      setFile(file);
+      // Reset auto-detection flag
+      setIsAutoDetected(false);
+      // Try to auto-detect sample rate for WAV files
+      if (file.name.toLowerCase().endsWith('.wav')) {
+        const detectedRate = await getSampleRateFromWav(file);
+        if (detectedRate !== null) {
+          setSampleRateState(detectedRate);
+          setIsCustomRate(false);
+          setIsAutoDetected(true);
+        }
+      }
     }
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files?.[0]) {
-      setFile(e.target.files[0]);
+      const file = e.target.files[0];
+      setFile(file);
+      // Reset auto-detection flag
+      setIsAutoDetected(false);
+      // Try to auto-detect sample rate for WAV files
+      if (file.name.toLowerCase().endsWith('.wav')) {
+        const detectedRate = await getSampleRateFromWav(file);
+        if (detectedRate !== null) {
+          setSampleRateState(detectedRate);
+          setIsCustomRate(false);
+          setIsAutoDetected(true);
+        }
+      }
     }
   };
 
@@ -209,10 +291,15 @@ export default function UploadZone({
               <div className="flex items-center gap-2">
                 <input
                   type="number"
-                  value={sampleRate}
+                  value={customRateInput}
                   onChange={(e) => {
-                    const value = Number(e.target.value);
-                    if (!isNaN(value) && value > 0) setSampleRateState(value);
+                    const value = e.target.value;
+                    setCustomRateInput(value);
+                    const numValue = Number(value);
+                    if (!isNaN(numValue) && numValue > 0) {
+                      setSampleRateState(numValue);
+                      setIsAutoDetected(false); // Manual entry overrides auto-detection
+                    }
                   }}
                   min="1"
                   step="1"
@@ -247,6 +334,7 @@ export default function UploadZone({
                   } else {
                     setSampleRateState(value);
                     setIsCustomRate(false);
+                    setIsAutoDetected(false); // Manual selection overrides auto-detection
                   }
                 }}
                 disabled={loading}
@@ -261,6 +349,11 @@ export default function UploadZone({
                 <option value={48000}>48,000 Hz (Studio WAV)</option>
                 <option value={-1}>Custom...</option>
               </select>
+            )}
+            {isAutoDetected && (
+              <p className="mt-1 text-xs font-geist-mono text-accent">
+                Auto-detected: {sampleRate.toLocaleString()} Hz
+              </p>
             )}
           </div>
 
