@@ -17,6 +17,10 @@ import {
   Area,
 } from 'recharts';
 import { ProcessResult, processFile, DecodeResult, CorrelateResult, decodeSignal, correlateSignal } from '@/services/api';
+
+interface ExtendedProcessResult extends ProcessResult {
+  fec_scheme: string;
+}
 import Card from '@/components/base/Card';
 import WaterfallPlot from '@/components/WaterfallPlot';
 
@@ -28,21 +32,23 @@ export default function Results() {
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'waveform' | 'psd' | 'constellation' | 'spectrogram' | 'waterfall'>('waveform');
   const [editingSampleRate, setEditingSampleRate] = useState<boolean>(false);
+  const [fecScheme, setFecScheme] = useState<string>('');
+  const [editingFecScheme, setEditingFecScheme] = useState<boolean>(false);
 
   // Fetch full analysis including decode and correlate results
-  const fetchFullAnalysis = async (file: File, sampleRate: number): Promise<ProcessResult> => {
+  const fetchFullAnalysis = async (file: File, sampleRate: number, fecScheme: string = ""): Promise<ProcessResult> => {
     try {
       // Step 1: Process file to get base results
       const processRes = await processFile(file, sampleRate);
 
-      // Step 2: Fetch decode results (using default fecScheme "")
-      const decodeRes = await decodeSignal(file, "", sampleRate);
+      // Step 2: Fetch decode results (using provided fecScheme)
+      const decodeRes = await decodeSignal(file, fecScheme, sampleRate);
 
       // Step 3: Fetch correlate results
       const correlateRes = await correlateSignal(file, { sampleRate });
 
       // Merge all results
-      return {
+      const extendedResult: ExtendedProcessResult = {
         ...processRes,
         demodulated_bits: decodeRes.demodulated_bits,
         demodulated_bits_count: decodeRes.demodulated_bits_count,
@@ -50,7 +56,9 @@ export default function Results() {
         deinterleaved_bits_count: decodeRes.deinterleaved_bits_count,
         decoded_bits: decodeRes.decoded_bits,
         correlate_result: correlateRes,
+        fec_scheme: fecScheme
       };
+      return extendedResult;
     } catch (err) {
       throw err;
     }
@@ -108,7 +116,7 @@ export default function Results() {
       }
 
       // Re-process with new sample rate (including decode and correlate)
-      const res = await fetchFullAnalysis(originalFile, newSampleRate);
+      const res = await fetchFullAnalysis(originalFile, newSampleRate, fecScheme);
 
       // Update data and session storage
       setData(res);
@@ -150,6 +158,19 @@ export default function Results() {
         setData(prev => prev ? { ...prev, sample_rate: parsed } : null);
         // Clear the stored value to avoid re-applying on every render
         sessionStorage.removeItem('lastSampleRate');
+      }
+    }
+  }, []);
+
+  // Set FEC scheme from stored result
+  useEffect(() => {
+    const stored = sessionStorage.getItem('lastResult');
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        setFecScheme(parsed.fec_scheme || '');
+      } catch {
+        // Failed to parse
       }
     }
   }, []);
@@ -587,7 +608,7 @@ export default function Results() {
           </h2>
           <div className="space-y-4">
             <div className="h-48 w-full bg-canvas-elevated overflow-auto p-4">
-              <pre className="font-geist-mono text-xs text-ink">
+              <pre className="font-geist-mono text-lg text-ink">
                 {data.demodulated_bits
                   .slice(0, 100)
                   .map(bit => bit.toString())
@@ -620,7 +641,7 @@ export default function Results() {
           </h2>
           <div className="space-y-4">
             <div className="h-48 w-full bg-canvas-elevated overflow-auto p-4">
-              <pre className="font-geist-mono text-xs text-ink">
+              <pre className="font-geist-mono text-lg text-ink">
                 {data.deinterleaved_bits
                   .slice(0, 100)
                   .map(bit => bit.toString())
@@ -653,7 +674,7 @@ export default function Results() {
           </h2>
           <div className="space-y-4">
             <div className="h-48 w-full bg-canvas-elevated overflow-auto p-4">
-              <pre className="font-geist-mono text-xs text-ink">
+              <pre className="font-geist-mono text-lg text-ink">
                 {data.decoded_bits
                   .slice(0, 100)
                   .map(bit => bit.toString())
@@ -686,7 +707,7 @@ export default function Results() {
           </h2>
           <div className="space-y-4">
             <div className="h-48 w-full bg-canvas-elevated overflow-auto p-4">
-              <pre className="font-geist-mono text-xs text-ink">
+              <pre className="font-geist-mono text-lg text-ink">
                 {data.correlate_result!.bits ? (
                   data.correlate_result!.bits
                     .slice(0, 100)
@@ -759,6 +780,58 @@ export default function Results() {
             {!editingSampleRate && (
               <button
                 onClick={() => setEditingSampleRate(true)}
+                className="text-xs font-geist-mono text-cyan-500 hover:text-cyan-400 mt-1"
+              >
+                Edit
+              </button>
+            )}
+          </div>
+          <div className="p-4 bg-canvas-elevated/90 border border-hairline rounded-md">
+            <span className="block text-xs font-geist-mono font-weight-500 text-ink-faint">FEC Scheme</span>
+            {editingFecScheme ? (
+              <div className="flex items-center space-x-2">
+                <select
+                  value={fecScheme}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setFecScheme(value);
+                    // Trigger re-processing with new FEC scheme
+                    if (data) {
+                      handleSampleRateChange(); // This will re-process with current sample rate and new FEC scheme
+                    }
+                  }}
+                  disabled={loading}
+                  className="flex-1 bg-canvas-elevated border border-hairline rounded-md px-4 py-2 text-sm font-geist-mono text-ink focus:outline-none focus:ring-2 focus-ring-blue focus:border-blue transition-colors duration-200"
+                >
+                  <option value="">None</option>
+                  <option value="viterbi">Viterbi</option>
+                  <option value="reed-solomon">Reed-Solomon</option>
+                  <option value="concatenated">Concatenated</option>
+                  <option value="ldpc">LDPC</option>
+                </select>
+                <button
+                  type="button"
+                  disabled={loading || !data}
+                  onClick={() => {
+                    setEditingFecScheme(false);
+                    // Trigger re-processing with current FEC scheme
+                    if (data) {
+                      handleSampleRateChange();
+                    }
+                  }}
+                  className="shrink-0 px-3 py-2 text-xs font-geist-mono text-ink-faint bg-canvas-elevated border border-hairline rounded-md hover:border-cyan-500/50 hover:text-ink transition-colors duration-200"
+                >
+                  Apply
+                </button>
+              </div>
+            ) : (
+              <span className="block font-geist-mono font-weight-600 text-ink">
+                {fecScheme || 'None'}
+              </span>
+            )}
+            {!editingFecScheme && (
+              <button
+                onClick={() => setEditingFecScheme(true)}
                 className="text-xs font-geist-mono text-cyan-500 hover:text-cyan-400 mt-1"
               >
                 Edit
