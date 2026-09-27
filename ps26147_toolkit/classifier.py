@@ -206,9 +206,9 @@ def _process_signal_chunks(signal: np.ndarray, fs: float = 1_000_000.0, fc: Opti
 
     avg_c20 = sum_c20 / count_blocks
     avg_c40 = sum_c40 / count_blocks
-    avg_c42 = sum_c42 / count_blocks
-    avg_c60 = sum_c60 / count_blocks
-    avg_c63 = sum_c63 / count_blocks
+    sum_c42 = sum_c42 / count_blocks
+    sum_c60 = sum_c60 / count_blocks
+    sum_c63 = sum_c63 / count_blocks
 
     mean_env = sum_env / count_samples
     mean_env_sq = sum_env_sq / count_samples
@@ -218,7 +218,7 @@ def _process_signal_chunks(signal: np.ndarray, fs: float = 1_000_000.0, fc: Opti
     mean_phase = sum_phase / count_samples
     mean_phase_sq = sum_phase_sq / count_samples
     var_phase = mean_phase_sq - mean_phase**2
-    phase_std = np.sqrt(var_phase) if var_phase > 0 else 0.0  # not directly needed but could be used
+    phase_std = np.sqrt(var_phase) if var_phase > 0 else 0.0
 
     avg_sigma_af = sum_sigma_af / count_blocks
     avg_fsk_p = sum_fsk_p / count_blocks
@@ -378,7 +378,7 @@ def generate_synthetic_dataset(
     random_state: int = 42,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Generate realistic synthetic training data with channel impairments for AMR.
-    
+
     Impairments include:
       - Root-Raised Cosine (RRC) pulse shaping (alpha in [0.2, 0.5])
       - Carrier Frequency Offset (CFO) and random carrier phase
