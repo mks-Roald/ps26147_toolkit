@@ -197,6 +197,8 @@ export default function UploadZone({
         deinterleaved_bits: decodeRes.deinterleaved_bits,
         deinterleaved_bits_count: decodeRes.deinterleaved_bits_count,
         decoded_bits: decodeRes.decoded_bits,
+        decoded_hex: decodeRes.decoded_hex,
+        decoded_ascii: decodeRes.decoded_ascii,
         correlate_result: correlateRes,
       };
 

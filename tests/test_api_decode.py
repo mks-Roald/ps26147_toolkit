@@ -78,3 +78,33 @@ def test_decode_endpoint_deinterleaving_fields():
     assert "deinterleaver_params" in data
     assert "deinterleaver_entropy" in data
     assert "deinterleaver_baseline_entropy" in data
+
+
+def test_decode_endpoint_fec_hex_and_ascii():
+    """Verify that /decode populates decoded_hex and decoded_ascii correctly."""
+    num_bits = 64
+    raw_iq = _generate_synthetic_bpsk(num_bits=num_bits)
+
+    response = client.post(
+        "/decode/?fs=1000000.0&fec_scheme=none",
+        files={"file": ("test_signal.iq", raw_iq, "application/octet-stream")},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+
+    assert "decoded_hex" in data
+    assert "decoded_ascii" in data
+    assert data["decoded_hex"] is not None
+    assert data["decoded_ascii"] is not None
+    assert len(data["decoded_hex"]) > 0
+    assert len(data["decoded_ascii"]) > 0
+
+    # Verify hex formatting: space-separated uppercase hex pairs
+    hex_parts = data["decoded_hex"].split()
+    assert len(hex_parts) == int(np.ceil(len(data["decoded_bits"]) / 8))
+    for part in hex_parts:
+        assert len(part) == 2
+        assert part == part.upper()
+        int(part, 16)  # Valid hex integer
+

@@ -50,6 +50,8 @@ class DecodeResponse(BaseModel):
     fec_scheme: Optional[str] = None
     decoded_bits_count: int
     decoded_bits: List[int]
+    decoded_hex: Optional[str] = None
+    decoded_ascii: Optional[str] = None
     demodulated_bits: Optional[List[int]] = None
     demodulated_bits_count: Optional[int] = None
     deinterleaved_bits: Optional[List[int]] = None

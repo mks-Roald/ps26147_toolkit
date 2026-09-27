@@ -37,6 +37,8 @@ export interface ProcessResult {
   deinterleaved_bits?: number[];
   deinterleaved_bits_count?: number;
   decoded_bits?: number[];
+  decoded_hex?: string;
+  decoded_ascii?: string;
   correlate_result?: CorrelateResult;
 }
 
@@ -57,6 +59,8 @@ export interface DecodeResult {
   fec_scheme?: string;
   decoded_bits_count: number;
   decoded_bits: number[];
+  decoded_hex?: string;
+  decoded_ascii?: string;
   demodulated_bits?: number[];
   demodulated_bits_count?: number;
   deinterleaved_bits?: number[];

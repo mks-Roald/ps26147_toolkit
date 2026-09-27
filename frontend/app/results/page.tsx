@@ -55,6 +55,8 @@ export default function Results() {
         deinterleaved_bits: decodeRes.deinterleaved_bits,
         deinterleaved_bits_count: decodeRes.deinterleaved_bits_count,
         decoded_bits: decodeRes.decoded_bits,
+        decoded_hex: decodeRes.decoded_hex,
+        decoded_ascii: decodeRes.decoded_ascii,
         correlate_result: correlateRes,
         fec_scheme: fecScheme
       };
@@ -199,6 +201,44 @@ export default function Results() {
   const psdData = data.psd_data ? data.psd_data.map((p) => ({ freq: Math.round(p.freq), psd: Number(p.psd.toFixed(2)) })) : [];
   const constellationData = data.constellation_data ? data.constellation_data.map((pt) => ({ i: Number(pt.i.toFixed(4)), q: Number(pt.q.toFixed(4)) })) : [];
 
+  // Helper to format decoded bits to Hex and ASCII
+  const getFecOutputs = () => {
+    if (!data?.decoded_bits || data.decoded_bits.length === 0) {
+      return {
+        hex: data?.decoded_hex || '',
+        ascii: data?.decoded_ascii || '',
+        bytes: null as Uint8Array | null,
+        byteCount: 0,
+        bitCount: 0,
+      };
+    }
+
+    const bitCount = data.decoded_bits.length;
+    const byteCount = Math.ceil(bitCount / 8);
+    const bytes = new Uint8Array(byteCount);
+    for (let i = 0; i < bitCount; i++) {
+      if (data.decoded_bits[i]) {
+        bytes[Math.floor(i / 8)] |= 1 << (7 - (i % 8));
+      }
+    }
+
+    // Space-separated uppercase hex pairs (e.g. 4A 6F 68 6E)
+    const hex = data.decoded_hex || Array.from(bytes, (b) => b.toString(16).padStart(2, '0').toUpperCase()).join(' ');
+
+    // ASCII: printable characters with non-printable shown as '.' placeholders
+    const ascii = data.decoded_ascii || Array.from(bytes, (b) => (b >= 32 && b <= 126 ? String.fromCharCode(b) : '.')).join('');
+
+    return {
+      hex,
+      ascii,
+      bytes,
+      byteCount,
+      bitCount,
+    };
+  };
+
+  const fecOutput = getFecOutputs();
+
   return (
     <div className="space-y-16">
       {/* Top Header & Breadcrumb */}
@@ -295,6 +335,8 @@ export default function Results() {
                     if (data.decoded_bits) {
                       rows.push(['Decoded Bits (FEC Output)', data.decoded_bits.join('')]);
                       rows.push(['Decoded Bits Count', data.decoded_bits.length]);
+                      if (fecOutput.hex) rows.push(['Decoded Hex (FEC Output)', fecOutput.hex]);
+                      if (fecOutput.ascii) rows.push(['Decoded ASCII (FEC Output)', fecOutput.ascii]);
                       rows.push([]); // Empty row
                     }
 
@@ -667,101 +709,125 @@ export default function Results() {
           </div>
         </section>
       )}
+      {/* FEC Decoded Output */}
       {data?.decoded_bits && (
         <section className="bg-canvas-elevated hairline-border rounded-lg p-6 whisper-shadow">
-          <h2 className="font-geist font-weight-600 text-lg text-ink mb-6">
-            FEC Decoded Stream
-          </h2>
-          <div className="space-y-4">
-            {/* Bits Preview */}
-            <div className="space-y-2">
-              <div className="flex items-center space-x-2">
-                <span className="font-geist text-sm text-ink-faint">Bits:</span>
-              </div>
-              <div className="h-32 w-full bg-canvas-elevated overflow-auto p-4">
-                <pre className="font-geist-mono text-lg text-ink">
-                  {data.decoded_bits
-                    .slice(0, 100)
-                    .map(bit => bit.toString())
-                    .join('')}
-                  {data.decoded_bits.length > 100 ? '...' : ''}
-                </pre>
-              </div>
+          <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+            <div className="flex items-center space-x-3">
+              <h2 className="font-geist font-weight-600 text-lg text-ink">
+                FEC Decoded Output
+              </h2>
+              {fecScheme && fecScheme.toLowerCase() !== 'none' && (
+                <span className="px-2.5 py-0.5 rounded-full text-xs font-geist-mono font-weight-500 bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+                  {fecScheme.toUpperCase()}
+                </span>
+              )}
             </div>
-
-            {/* Hex Preview */}
-            <div className="space-y-2">
-              <div className="flex items-center space-x-2">
-                <span className="font-geist text-sm text-ink-faint">Hex:</span>
-              </div>
-              <div className="h-32 w-full bg-canvas-elevated overflow-auto p-4">
-                <pre className="font-geist-mono text-lg text-ink">
-                  {data.decoded_bits
-                    ? (() => {
-                        // Convert bits to bytes (MSB-first packing)
-                        const numBytes = Math.ceil(data.decoded_bits.length / 8);
-                        const bytes = new Uint8Array(numBytes);
-                        for (let i = 0; i < data.decoded_bits.length; i++) {
-                          if (data.decoded_bits[i]) {
-                            bytes[Math.floor(i / 8)] |= (1 << (7 - (i % 8)));
-                          }
-                        }
-                        // Take first 64 bytes and format as space-separated hex
-                        const hexBytes = bytes.slice(0, 64);
-                        return Array.from(hexBytes, b => b.toString(16).padStart(2, '0')).join(' ').toUpperCase();
-                      })()
-                    : ''
-                  }
-                </pre>
-              </div>
+            <div className="text-xs font-geist-mono text-ink-faint">
+              {fecOutput.bitCount.toLocaleString()} bits • {fecOutput.byteCount.toLocaleString()} bytes
             </div>
-
-            {/* ASCII Preview */}
-            <div className="space-y-2">
-              <div className="flex items-center space-x-2">
-                <span className="font-geist text-sm text-ink-faint">ASCII:</span>
-              </div>
-              <div className="h-32 w-full bg-canvas-elevated overflow-auto p-4">
-                <pre className="font-geist-mono text-lg text-ink">
-                  {data.decoded_bits
-                    ? (() => {
-                        // Convert bits to bytes (MSB-first packing)
-                        const numBytes = Math.ceil(data.decoded_bits.length / 8);
-                        const bytes = new Uint8Array(numBytes);
-                        for (let i = 0; i < data.decoded_bits.length; i++) {
-                          if (data.decoded_bits[i]) {
-                            bytes[Math.floor(i / 8)] |= (1 << (7 - (i % 8)));
-                          }
-                        }
-                        // Take first 256 bytes and convert to ASCII with non-printable as dots
-                        const asciiBytes = bytes.slice(0, 256);
-                        return Array.from(asciiBytes, b => {
-                          const c = String.fromCharCode(b);
-                          return (b >= 32 && b <= 126) ? c : '.';
-                        }).join('');
-                      })()
-                    : ''
-                  }
-                </pre>
-              </div>
-            </div>
-
-            <button
-              onClick={() => {
-                const bitsString = data.decoded_bits?.join('') || '';
-                const blob = new Blob([bitsString], { type: 'text/plain' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = 'decoded_bits.txt';
-                a.click();
-                URL.revokeObjectURL(url);
-              }}
-              className="inline-flex items-center space-x-2 px-5 py-2.5 rounded-pill font-geist font-weight-500 transition-all duration-200 hover:bg-ink/90 bg-ink text-on-primary dark:hover:bg-ink/20 dark:bg-ink/10 dark:text-ink"
-            >
-              <span>Download Full Data</span>
-            </button>
           </div>
+
+          {fecOutput.bitCount === 0 ? (
+            <div className="p-6 rounded-md bg-canvas/60 border border-hairline text-center">
+              <p className="text-sm font-geist-mono text-ink-faint">
+                No decoded output available.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {/* Bits Preview */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-geist text-sm font-weight-500 text-ink-muted">
+                    Decoded Bitstream (first {Math.min(fecOutput.bitCount, 512)} bits):
+                  </span>
+                  <span className="text-xs font-geist-mono text-ink-faint">
+                    Total: {fecOutput.bitCount.toLocaleString()} bits
+                  </span>
+                </div>
+                <div className="h-32 w-full bg-canvas/80 border border-hairline rounded-md overflow-x-auto overflow-y-auto p-4">
+                  <pre className="font-geist-mono text-sm text-ink whitespace-pre-wrap break-all leading-relaxed">
+                    {data.decoded_bits.slice(0, 512).join('')}
+                    {fecOutput.bitCount > 512 ? '...' : ''}
+                  </pre>
+                </div>
+              </div>
+
+              {/* Hex Preview */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-geist text-sm font-weight-500 text-ink-muted">
+                    Hex:
+                  </span>
+                  <span className="text-xs font-geist-mono text-ink-faint">
+                    Space-separated uppercase hex pairs
+                  </span>
+                </div>
+                <div className="h-32 w-full bg-canvas/80 border border-hairline rounded-md overflow-x-auto overflow-y-auto p-4">
+                  <pre className="font-geist-mono text-sm text-ink whitespace-pre-wrap break-all leading-relaxed tracking-wider">
+                    {fecOutput.hex || '—'}
+                  </pre>
+                </div>
+              </div>
+
+              {/* ASCII Preview */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-geist text-sm font-weight-500 text-ink-muted">
+                    ASCII:
+                  </span>
+                  <span className="text-xs font-geist-mono text-ink-faint">
+                    Non-printable bytes shown as &quot;.&quot;
+                  </span>
+                </div>
+                <div className="h-32 w-full bg-canvas/80 border border-hairline rounded-md overflow-x-auto overflow-y-auto p-4">
+                  <pre className="font-geist-mono text-sm text-ink whitespace-pre-wrap break-all leading-relaxed tracking-wide">
+                    {fecOutput.ascii || '—'}
+                  </pre>
+                </div>
+              </div>
+
+              {/* Download buttons */}
+              <div className="flex flex-wrap items-center gap-3 pt-2">
+                <button
+                  onClick={() => {
+                    const bitsString = data.decoded_bits?.join('') || '';
+                    const blob = new Blob([bitsString], { type: 'text/plain' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    const cleanFileName = fileName.replace(/\.[^/.]+$/, '');
+                    a.download = `${cleanFileName}_fec_decoded_bits.txt`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  }}
+                  className="inline-flex items-center space-x-2 px-5 py-2.5 rounded-pill font-geist font-weight-500 transition-all duration-200 hover:bg-ink/90 bg-ink text-on-primary dark:hover:bg-ink/20 dark:bg-ink/10 dark:text-ink text-xs"
+                >
+                  <span>Download Bits (.txt)</span>
+                </button>
+
+                {fecOutput.bytes && (
+                  <button
+                    onClick={() => {
+                      if (!fecOutput.bytes) return;
+                      const blob = new Blob([fecOutput.bytes.buffer as ArrayBuffer], { type: 'application/octet-stream' });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      const cleanFileName = fileName.replace(/\.[^/.]+$/, '');
+                      a.download = `${cleanFileName}_fec_decoded.bin`;
+                      a.click();
+                      URL.revokeObjectURL(url);
+                    }}
+                    className="inline-flex items-center space-x-2 px-5 py-2.5 rounded-pill font-geist font-weight-500 transition-all duration-200 hover:bg-cyan-500/20 bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 text-xs"
+                  >
+                    <span>Download Decoded (.bin)</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
         </section>
       )}
       {data && data.correlate_result && (

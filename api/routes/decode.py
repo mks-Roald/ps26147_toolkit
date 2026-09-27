@@ -50,7 +50,16 @@ async def decode_signal(
             fec_bits_arr = raw_bits
             decoded_bits = raw_bits.tolist()
 
-        # 5. Deinterleaving (auto-detect and deinterleave)
+        # 5. Hex and ASCII representation of decoded output
+        decoded_hex = ""
+        decoded_ascii = ""
+        if len(decoded_bits) > 0:
+            f_byte_arr = np.packbits(np.asarray(decoded_bits, dtype=np.uint8))
+            f_bytes = f_byte_arr.tobytes()
+            decoded_hex = " ".join(f"{b:02X}" for b in f_bytes)
+            decoded_ascii = "".join(chr(b) if 32 <= b <= 126 else "." for b in f_bytes)
+
+        # 6. Deinterleaving (auto-detect and deinterleave)
         deinterleaved_bits = None
         deinterleaved_bits_count = None
         deint_method = None
@@ -82,6 +91,8 @@ async def decode_signal(
             fec_scheme=fec_scheme,
             decoded_bits_count=len(decoded_bits),
             decoded_bits=decoded_bits,
+            decoded_hex=decoded_hex,
+            decoded_ascii=decoded_ascii,
             demodulated_bits=demodulated_bits,
             demodulated_bits_count=len(demodulated_bits),
             deinterleaved_bits=deinterleaved_bits,
