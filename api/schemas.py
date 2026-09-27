@@ -60,6 +60,10 @@ class DecodeResponse(BaseModel):
     deinterleaver_params: Optional[Dict[str, Any]] = None
     deinterleaver_entropy: Optional[float] = None
     deinterleaver_baseline_entropy: Optional[float] = None
+    # Frame-sync fields (populated after demod, before de-interleave)
+    sync_offset: Optional[int] = None
+    sync_confidence: Optional[float] = None
+    sync_method: Optional[str] = None
 
 class CorrelatedFrame(BaseModel):
     start_bit: int
