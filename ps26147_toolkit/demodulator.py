@@ -244,36 +244,63 @@ def compute_soft_llr(
         return np.clip(llrs, -20.0, 20.0).astype(np.float32)
 
     if "FSK" in mod_upper:
-        # FSK (Phase 6 §1.6): bits live in instantaneous frequency, not the
-        # static complex constellation, so the generic distant-based LLR is
-        # meaningless here.  Derive LLR from the signed, diff'd instantaneous
-        # frequency estimate -- the same signal slice_symbols_to_bits uses:
-        #   dev = diff(unwrap(angle(symbols))),  bit 1 when dev >= 0.
-        # LLR convention (positive -> bit 0, negative -> bit 1) then gives
-        #   llr = -dev / noise_variance,  scaled by discriminator noise var.
-        dev = np.diff(np.unwrap(np.angle(symbols)))
+        # FSK: bits live in instantaneous frequency, not the static complex
+        # constellation.  Derive LLR from the signed, np.diff'd instantaneous
+        # phase -- the same signal slice_symbols_to_bits() uses for the hard
+        # decision:
+        #   dev = np.diff(np.unwrap(np.angle(symbols))),  bit 1 when dev >= 0.
+        # LLR convention (positive -> bit 0, negative -> bit 1) gives:
+        #   llr = -dev / disc_noise_var
+        #
+        # disc_noise_var is estimated from the spread of `dev` itself (the
+        # actual deviation-domain noise), NOT from the constellation-domain
+        # noise_variance argument, which is irrelevant for FSK.
+        dev = np.diff(np.unwrap(np.angle(symbols)))  # length == len(symbols)-1
+
+        # Estimate discriminator noise variance from deviation signal residuals.
+        # Noise proxy: var(dev - sign(dev)*mean_abs_dev).
+        # Falls back to noise_variance when dev is too short.
+        if len(dev) >= 2:
+            mean_abs_dev = float(np.mean(np.abs(dev)))
+            disc_noise_var = float(np.var(dev - np.sign(dev) * mean_abs_dev))
+            disc_noise_var = max(disc_noise_var, 1e-6)
+        else:
+            disc_noise_var = max(float(noise_variance), 1e-6)
+
         if "4FSK" in mod_upper:
-            # 4FSK maps a sample of dev to 2 bits via the population quantiles
-            # q1 < q2 < q3  (see slice_symbols_to_bits).  For each of the two
-            # bit positions we soft-metric the distance of dev to its decision
-            # boundary, scaled by noise_variance.  This is approximate (not a
-            # full Gray-map), but strictly better than the -symbols.real fallback.
+            # 4FSK maps each dev sample to 2 bits via population quantiles
+            # q1 < q2 < q3 (see slice_symbols_to_bits).
+            # Returned length: 2*(len(symbols)-1) — matches 4FSK hard-bit count.
             if len(dev) == 0:
-                return np.array([], dtype=np.float32)
-            q1, q2, q3 = np.percentile(dev, [25, 50, 75])
-            out: list[float] = []
-            for d in dev:
-                # MSB (bit 0): boundary q2 splits the lower two levels from the
-                # upper two; dev < q2 -> bit 0.
-                out.append(float(np.clip(-(d - q2) / noise_variance, -20.0, 20.0)))
-                # LSB (bit 1): boundary q1 within the lower half, q3 within the
-                # upper half.
-                b = q1 if d < q2 else q3
-                out.append(float(np.clip(-(d - b) / noise_variance, -20.0, 20.0)))
-            return np.array(out, dtype=np.float32)
-        # 2FSK / generic FSK: 1 bit per deviation sample
-        llrs = -dev / noise_variance
-        return np.clip(llrs, -20.0, 20.0).astype(np.float32)
+                llrs = np.array([], dtype=np.float32)
+            else:
+                q1, q2, q3 = np.percentile(dev, [25, 50, 75])
+                out: list[float] = []
+                for d in dev:
+                    # MSB (bit 0): boundary q2 splits lower two levels from upper two.
+                    out.append(float(np.clip(-(d - q2) / disc_noise_var, -20.0, 20.0)))
+                    # LSB (bit 1): boundary q1 in lower half, q3 in upper half.
+                    b = q1 if d < q2 else q3
+                    out.append(float(np.clip(-(d - b) / disc_noise_var, -20.0, 20.0)))
+                llrs = np.array(out, dtype=np.float32)
+            expected_bit_count = 2 * (len(symbols) - 1)
+            assert len(llrs) == expected_bit_count, (
+                f"compute_soft_llr length mismatch: got {len(llrs)} LLRs, "
+                f"expected {expected_bit_count} for {modulation} "
+                f"(len(symbols)={len(symbols)})"
+            )
+            return llrs
+
+        # 2FSK / generic FSK: 1 LLR per dev sample → exactly len(symbols)-1 LLRs.
+        # This matches the hard-bit count from slice_symbols_to_bits() for FSK.
+        llrs = np.clip(-dev / disc_noise_var, -20.0, 20.0).astype(np.float32)
+        expected_bit_count = len(symbols) - 1
+        assert len(llrs) == expected_bit_count, (
+            f"compute_soft_llr length mismatch: got {len(llrs)} LLRs, "
+            f"expected {expected_bit_count} for {modulation} "
+            f"(len(symbols)={len(symbols)})"
+        )
+        return llrs
 
     constellation = CONSTELLATIONS.get(mod_upper.replace("-", ""))
 
@@ -317,7 +344,14 @@ def compute_soft_llr(
             llr = np.clip(llr, -20.0, 20.0)
             llrs.append(llr)
 
-    return np.array(llrs, dtype=np.float32)
+    llrs = np.array(llrs, dtype=np.float32)
+    expected_bit_count = len(symbols) * bits_per_symbol
+    assert len(llrs) == expected_bit_count, (
+        f"compute_soft_llr length mismatch: got {len(llrs)} LLRs, "
+        f"expected {expected_bit_count} for {modulation} "
+        f"(len(symbols)={len(symbols)}, bits_per_symbol={bits_per_symbol})"
+    )
+    return llrs
 
 
 def slice_symbols_to_bits(symbols: np.ndarray, modulation: str) -> tuple[np.ndarray, np.ndarray]:
