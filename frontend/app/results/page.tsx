@@ -673,15 +673,79 @@ export default function Results() {
             FEC Decoded Stream
           </h2>
           <div className="space-y-4">
-            <div className="h-48 w-full bg-canvas-elevated overflow-auto p-4">
-              <pre className="font-geist-mono text-lg text-ink">
-                {data.decoded_bits
-                  .slice(0, 100)
-                  .map(bit => bit.toString())
-                  .join('')}
-                {data.decoded_bits.length > 100 ? '...' : ''}
-              </pre>
+            {/* Bits Preview */}
+            <div className="space-y-2">
+              <div className="flex items-center space-x-2">
+                <span className="font-geist text-sm text-ink-faint">Bits:</span>
+              </div>
+              <div className="h-32 w-full bg-canvas-elevated overflow-auto p-4">
+                <pre className="font-geist-mono text-lg text-ink">
+                  {data.decoded_bits
+                    .slice(0, 100)
+                    .map(bit => bit.toString())
+                    .join('')}
+                  {data.decoded_bits.length > 100 ? '...' : ''}
+                </pre>
+              </div>
             </div>
+
+            {/* Hex Preview */}
+            <div className="space-y-2">
+              <div className="flex items-center space-x-2">
+                <span className="font-geist text-sm text-ink-faint">Hex:</span>
+              </div>
+              <div className="h-32 w-full bg-canvas-elevated overflow-auto p-4">
+                <pre className="font-geist-mono text-lg text-ink">
+                  {data.decoded_bits
+                    ? (() => {
+                        // Convert bits to bytes (MSB-first packing)
+                        const numBytes = Math.ceil(data.decoded_bits.length / 8);
+                        const bytes = new Uint8Array(numBytes);
+                        for (let i = 0; i < data.decoded_bits.length; i++) {
+                          if (data.decoded_bits[i]) {
+                            bytes[Math.floor(i / 8)] |= (1 << (7 - (i % 8)));
+                          }
+                        }
+                        // Take first 64 bytes and format as space-separated hex
+                        const hexBytes = bytes.slice(0, 64);
+                        return Array.from(hexBytes, b => b.toString(16).padStart(2, '0')).join(' ').toUpperCase();
+                      })()
+                    : ''
+                  }
+                </pre>
+              </div>
+            </div>
+
+            {/* ASCII Preview */}
+            <div className="space-y-2">
+              <div className="flex items-center space-x-2">
+                <span className="font-geist text-sm text-ink-faint">ASCII:</span>
+              </div>
+              <div className="h-32 w-full bg-canvas-elevated overflow-auto p-4">
+                <pre className="font-geist-mono text-lg text-ink">
+                  {data.decoded_bits
+                    ? (() => {
+                        // Convert bits to bytes (MSB-first packing)
+                        const numBytes = Math.ceil(data.decoded_bits.length / 8);
+                        const bytes = new Uint8Array(numBytes);
+                        for (let i = 0; i < data.decoded_bits.length; i++) {
+                          if (data.decoded_bits[i]) {
+                            bytes[Math.floor(i / 8)] |= (1 << (7 - (i % 8)));
+                          }
+                        }
+                        // Take first 256 bytes and convert to ASCII with non-printable as dots
+                        const asciiBytes = bytes.slice(0, 256);
+                        return Array.from(asciiBytes, b => {
+                          const c = String.fromCharCode(b);
+                          return (b >= 32 && b <= 126) ? c : '.';
+                        }).join('');
+                      })()
+                    : ''
+                  }
+                </pre>
+              </div>
+            </div>
+
             <button
               onClick={() => {
                 const bitsString = data.decoded_bits?.join('') || '';
