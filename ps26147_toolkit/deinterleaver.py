@@ -19,6 +19,9 @@ from __future__ import annotations
 import numpy as np
 from typing import Literal
 
+# Import ConvolutionalCodec for the new auto-detection function
+from .fec_decoders import ConvolutionalCodec
+
 
 # ---------------------------------------------------------------------------
 # 1.  Block De-interleaver
@@ -277,7 +280,7 @@ def _run_length_score(bits: np.ndarray) -> float:
 
 
 # ---------------------------------------------------------------------------
-# Auto-detection helper
+# Auto-detection helper (entropy-based)
 # ---------------------------------------------------------------------------
 
 # Common parameter grids to search
@@ -295,14 +298,37 @@ DeinterleaverMethod = Literal["block", "convolutional", "diagonal", "pseudo-rand
 
 def auto_detect_and_deinterleave(
     bits: np.ndarray,
+    min_bits: int = 256,
+    min_entropy_improvement: float = 0.2,
 ) -> dict:
     """Try all four de-interleaving methods with common parameter grids and
     return the result that yields the most structured output.
+
+    Prompt 2 threshold logic
+    ------------------------
+    Two guards prevent false-positive detection on short or high-entropy
+    (already near-random, e.g. viterbi-encoded) bitstreams:
+
+    1. **Minimum signal length** (``min_bits``, default 256): fewer bits give
+       unreliable byte-level entropy estimates because only a handful of byte
+       values appear, making any permutation look like an improvement.  Signals
+       shorter than this threshold are returned unchanged (method='none').
+
+    2. **Minimum absolute entropy improvement** (``min_entropy_improvement``,
+       default 1.5 bits/byte): a de-interleaving candidate is accepted only if
+       its byte-level entropy is at least this many bits/byte lower than the
+       baseline.  This avoids applying a permutation that happens to marginally
+       win the heuristic score due to sampling noise — the improvement must be
+       large enough to be meaningfully structural.
 
     Parameters
     ----------
     bits : np.ndarray
         Interleaved bitstream.
+    min_bits : int
+        Minimum number of bits required to attempt auto-detection.
+    min_entropy_improvement : float
+        Minimum absolute reduction in bits/byte entropy to accept a candidate.
 
     Returns
     -------
@@ -316,8 +342,7 @@ def auto_detect_and_deinterleave(
     baseline_entropy = _byte_entropy(bits)
     baseline_rls = _run_length_score(bits)
 
-    best_score = 0.0   # improvement over baseline
-    best_result: dict = {
+    identity_result: dict = {
         "method": "none",
         "params": {},
         "bits": bits.copy(),
@@ -325,13 +350,23 @@ def auto_detect_and_deinterleave(
         "baseline_entropy": baseline_entropy,
     }
 
+    # Prompt 2 guard 1: bitstream too short for reliable entropy estimation.
+    if len(bits) < min_bits:
+        return identity_result
+
+    best_score = 0.0   # improvement over baseline
+    best_result: dict = identity_result.copy()
+
     def _eval(candidate: np.ndarray, method: str, params: dict):
         nonlocal best_score, best_result
         ent = _byte_entropy(candidate)
         rls = _run_length_score(candidate)
-        # Combined improvement score  (lower entropy + higher run-length)
-        score = (baseline_entropy - ent) + 4.0 * (rls - baseline_rls)
-        if score > best_score:
+        # Combined improvement score (lower entropy + higher run-length)
+        score = (baseline_entropy - ent) + 1.0 * (rls - baseline_rls)
+        # Prompt 2 guard 2: require a minimum absolute entropy improvement to
+        # avoid accepting candidates that only marginally beat the baseline.
+        entropy_improvement = baseline_entropy - ent
+        if score > best_score and entropy_improvement >= min_entropy_improvement:
             best_score = score
             best_result = {
                 "method": method,
@@ -371,6 +406,135 @@ def auto_detect_and_deinterleave(
             _eval(out, "pseudo-random", {"block_size": bs, "seed": seed})
 
     return best_result
+
+
+# ---------------------------------------------------------------------------
+# New FEC-based auto-detection helper
+# ---------------------------------------------------------------------------
+
+def auto_detect_deinterleave_by_fec(bits: np.ndarray) -> dict:
+    """Auto-detect deinterleaving by minimizing FEC mismatch.
+
+    Candidates: "none" + block (_BLOCK_SIZES jahan r*c <= len(bits)) +
+                convolutional (_CONV_PARAMS) + diagonal (_DIAG_SIZES) +
+                pseudo-random (_PR_BLOCK_SIZES x _PR_SEEDS).
+
+    For each candidate: c = deinterleave(bits)[:512];
+                        dec = ConvolutionalCodec().decode(c);
+                        re = ConvolutionalCodec().encode(dec, flush=True);
+                        mismatch = mean(re[:n] != c[:n]), n=min(len(re),len(c)).
+    Pick candidate with smallest mismatch. Accept only if:
+        best_mismatch < 0.5 * none_mismatch AND best_mismatch < 0.5 * second_best_mismatch.
+    Otherwise, return method="none", bits unchanged.
+
+    Return dict shape matches auto_detect_and_deinterleave plus "mismatch" key.
+    """
+    # If bits are too short, return none
+    if len(bits) < 2:
+        return {
+            "method": "none",
+            "params": {},
+            "bits": bits.copy(),
+            "entropy": _byte_entropy(bits),
+            "baseline_entropy": _byte_entropy(bits),
+            "mismatch": 0.5,  # arbitrary high mismatch for short bits
+        }
+
+    # Helper to compute mismatch for a given deinterleaved candidate (first 512 bits)
+    def compute_mismatch(candidate_bits: np.ndarray) -> float:
+        # Take first 512 bits (or as many as available)
+        c = candidate_bits[:512]
+        if len(c) == 0:
+            return 0.5
+        # Decode with convolutional codec (Viterbi)
+        try:
+            dec = ConvolutionalCodec().decode(c)
+            # Re-encode the decoded bits
+            re = ConvolutionalCodec().encode(dec, flush=True)
+            n = min(len(re), len(c))
+            if n == 0:
+                return 0.5
+            mismatch = np.mean(re[:n] != c[:n])
+            return float(mismatch)
+        except Exception:
+            # If decoding fails, return high mismatch
+            return 0.5
+
+    # Evaluate "none" candidate
+    none_mismatch = compute_mismatch(bits)
+    # We'll collect all candidates and their mismatches
+    candidates = [("none", {}, bits, none_mismatch)]
+
+    n = len(bits)
+
+    # Block candidates
+    for r, c in _BLOCK_SIZES:
+        if r * c > n:
+            continue
+        out = block_deinterleave(bits, r, c)
+        mismatch = compute_mismatch(out)
+        candidates.append(("block", {"rows": r, "cols": c}, out, mismatch))
+
+    # Convolutional candidates
+    for nb, d in _CONV_PARAMS:
+        out = convolutional_deinterleave(bits, nb, d)
+        mismatch = compute_mismatch(out)
+        candidates.append(("convolutional", {"num_branches": nb, "delay": d}, out, mismatch))
+
+    # Diagonal candidates
+    for r, c in _DIAG_SIZES:
+        if r * c > n:
+            continue
+        out = diagonal_deinterleave(bits, r, c)
+        mismatch = compute_mismatch(out)
+        candidates.append(("diagonal", {"rows": r, "cols": c}, out, mismatch))
+
+    # Pseudo-random candidates
+    for bs in _PR_BLOCK_SIZES:
+        if bs > n:
+            continue
+        for seed in _PR_SEEDS:
+            out = pseudorandom_deinterleave(bits, bs, seed)
+            mismatch = compute_mismatch(out)
+            candidates.append(("pseudo-random", {"block_size": bs, "seed": seed}, out, mismatch))
+
+    # Sort by mismatch (ascending)
+    candidates.sort(key=lambda x: x[3])
+
+    # Extract best, second best, and none (which is first in original list but we have sorted)
+    best_method, best_params, best_bits, best_mismatch = candidates[0]
+    # Find second best (skip if same as best? we'll take next distinct)
+    second_best_mismatch = None
+    for cand in candidates[1:]:
+        if cand[3] != best_mismatch:
+            second_best_mismatch = cand[3]
+            break
+    if second_best_mismatch is None:
+        # All candidates have same mismatch? then use none_mismatch as second best for safety
+        second_best_mismatch = none_mismatch
+
+    # Acceptance condition: best_mismatch < 0.5 * none_mismatch AND best_mismatch < 0.5 * second_best_mismatch
+    if best_mismatch < 0.5 * none_mismatch and best_mismatch < 0.5 * second_best_mismatch:
+        # Use the best candidate
+        selected_method, selected_params, selected_bits = best_method, best_params, best_bits
+        selected_mismatch = best_mismatch
+    else:
+        # Fall back to none
+        selected_method, selected_params, selected_bits = "none", {}, bits.copy()
+        selected_mismatch = none_mismatch
+
+    # Compute entropy and baseline entropy for the selected bits
+    entropy = _byte_entropy(selected_bits)
+    baseline_entropy = _byte_entropy(bits)
+
+    return {
+        "method": selected_method,
+        "params": selected_params,
+        "bits": selected_bits,
+        "entropy": entropy,
+        "baseline_entropy": baseline_entropy,
+        "mismatch": selected_mismatch,
+    }
 
 
 # ---------------------------------------------------------------------------

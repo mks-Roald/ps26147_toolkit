@@ -206,9 +206,9 @@ def _process_signal_chunks(signal: np.ndarray, fs: float = 1_000_000.0, fc: Opti
 
     avg_c20 = sum_c20 / count_blocks
     avg_c40 = sum_c40 / count_blocks
-    sum_c42 = sum_c42 / count_blocks
-    sum_c60 = sum_c60 / count_blocks
-    sum_c63 = sum_c63 / count_blocks
+    avg_c42 = sum_c42 / count_blocks
+    avg_c60 = sum_c60 / count_blocks
+    avg_c63 = sum_c63 / count_blocks
 
     mean_env = sum_env / count_samples
     mean_env_sq = sum_env_sq / count_samples
@@ -340,7 +340,7 @@ def rule_based_classify(signal: np.ndarray = None, fs: float = 1000000.0, fc: Op
     else:
         phase_angles = np.angle(sig)
         phase_std = float(np.std(phase_angles))
-    if sigma_aa > 0.35 and phase_std < 0.25:
+    if sigma_aa > 0.20 and phase_std < 0.25:
         return "AM"
 
     # 3. PSK vs QAM Discrimination using 4th-power phase folding

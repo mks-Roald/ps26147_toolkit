@@ -1,4 +1,5 @@
 import logging
+import math
 from typing import Optional, List, Dict, Any
 import numpy as np
 from fastapi import APIRouter, UploadFile, File, Query, HTTPException
@@ -50,16 +51,21 @@ async def decode_signal(
     auto_deinterleave: bool = Query(True, description="Automatically detect and apply deinterleaving"),
     sync_word: Optional[str] = Query(None, description="Sync word in hex (e.g. '1ACFFC1D' or '0x47') or standard name"),
     auto_detect_sync: bool = Query(True, description="Automatically detect preamble/sync word when sync_word is not given"),
+    modulation: Optional[str] = Query(None, description="Modulation override: e.g. 'FSK', '2FSK', 'BPSK', 'QPSK'"),
 ):
     try:
         contents = await file.read()
         sig, sample_rate = load_signal_from_bytes(contents, file.filename or "", default_fs=fs)
-        
-        # 1. Classify modulation
-        clf = classifier.ModulationClassifier()
-        clf_res = clf.predict_with_confidence(sig, fs=sample_rate)
-        mod = clf_res["modulation"]
-        conf = float(clf_res["confidence"])
+
+        # 1. Classify modulation (or use override if provided)
+        if modulation:
+            mod = modulation
+            conf = 1.0
+        else:
+            clf = classifier.ModulationClassifier()
+            clf_res = clf.predict_with_confidence(sig, fs=sample_rate)
+            mod = clf_res["modulation"]
+            conf = float(clf_res["confidence"])
 
         # 2. Extract parameters (baud rate & center frequency)
         params = parameter_extractor.extract_signal_parameters(sig, fs=sample_rate, modulation=mod)
@@ -112,12 +118,12 @@ async def decode_signal(
         if target_sync is not None and len(raw_bits) >= len(target_sync):
             sync_res = correlator.frame_synchronize(raw_bits, target_sync)
             if sync_res.get("sync_found", False) and len(sync_res.get("peak_indices", [])) > 0:
-                first_peak = int(sync_res["peak_indices"][0])
-                sync_offset = first_peak
-                sync_confidence = float(sync_res.get("max_correlation", 0.0))
+                best_frame = max(sync_res.get("frames", []), key=lambda frame: frame["correlation"])
+                sync_offset = int(best_frame["start_bit"])
+                sync_confidence = float(best_frame["correlation"])
 
-                # Single slice operation applied to both raw_bits and llr
-                sync_slice = slice(sync_offset, None)
+                # Single slice operation applied to both raw_bits and llr past sync preamble
+                sync_slice = slice(sync_offset + len(target_sync), None)
                 raw_bits = raw_bits[sync_slice]
                 if llr is not None:
                     llr = llr[sync_slice]
@@ -134,16 +140,62 @@ async def decode_signal(
             sync_confidence = 0.0
             sync_method = "none"
 
-        # 5. Optional FEC Decode
-        if fec_scheme.lower() != "none" and len(raw_bits) > 0:
-            fec_res = fec_decoders.decode_fec(raw_bits, scheme=fec_scheme, llr=llr)
+        # 5. Optional FEC Decide - but we will do deinterleave first if needed
+        # Determine if we attempted sync detection
+        sync_attempted = bool(sync_word) or (auto_detect_sync and len(demod_res["bits"]) > 0)
+
+        # 6. Deinterleaving (auto-detect and deinterleave) - moved before FEC
+        deinterleaved_bits = None
+        deinterleaved_bits_count = None
+        deint_method = None
+        deint_params = None
+        deint_entropy = None
+        deint_base_entropy = None
+        deint_mismatch = None
+
+        if auto_deinterleave and len(raw_bits) > 0:
+            if fec_scheme.lower() == "viterbi":
+                # Use FEC-based auto detection for Viterbi
+                deint_res = deinterleaver.auto_detect_deinterleave_by_fec(np.asarray(raw_bits, dtype=np.uint8))
+            else:
+                # Use entropy-based auto detection
+                deint_res = deinterleaver.auto_detect_and_deinterleave(np.asarray(raw_bits, dtype=np.uint8), min_bits=64)
+        else:
+            # No deinterleave
+            deint_res = {
+                "method": "none",
+                "params": {},
+                "bits": raw_bits.copy(),
+                "entropy": _byte_entropy(raw_bits),
+                "baseline_entropy": _byte_entropy(raw_bits),
+                "mismatch": None,
+            }
+
+        # Extract results from deinterleaver
+        deinterleaved_bits_np = deint_res.get("bits")
+        if deinterleaved_bits_np is not None:
+            deinterleaved_bits = deinterleaved_bits_np.tolist()
+            deinterleaved_bits_count = len(deinterleaved_bits)
+        deint_method = deint_res.get("method")
+        deint_params = deint_res.get("params")
+        deint_entropy = deint_res.get("entropy")
+        deint_base_entropy = deint_res.get("baseline_entropy")
+        deint_mismatch = deint_res.get("mismatch")
+
+        # 7. FEC Decode (now after deinterleave)
+        if fec_scheme.lower() != "none" and len(raw_bits) > 0 and (sync_offset is not None or not sync_attempted):
+            # Input to FEC is the deinterleaved bits (or raw if deinterleave failed)
+            input_to_fec = deinterleaved_bits_np if deinterleaved_bits_np is not None else raw_bits
+            # If deinterleaver was applied (method not none), use hard decision (llr=None)
+            llr_to_use = None if deint_method not in (None, "none", "skipped") else llr
+            fec_res = fec_decoders.decode_fec(input_to_fec, scheme=fec_scheme, llr=llr_to_use)
             fec_bits_arr = fec_res["bits"]
             decoded_bits = fec_bits_arr.tolist()
         else:
-            fec_bits_arr = raw_bits
-            decoded_bits = raw_bits.tolist()
+            # No FEC or conditions not met: output is the deinterleaved bits (or raw if deinterleave skipped)
+            decoded_bits = deinterleaved_bits if deinterleaved_bits is not None else raw_bits.tolist()
 
-        # 6. Hex and ASCII representation of decoded output
+        # 8. Hex and ASCII representation of decoded output
         decoded_hex = ""
         decoded_ascii = ""
         if len(decoded_bits) > 0:
@@ -151,27 +203,6 @@ async def decode_signal(
             f_bytes = f_byte_arr.tobytes()
             decoded_hex = " ".join(f"{b:02X}" for b in f_bytes)
             decoded_ascii = "".join(chr(b) if 32 <= b <= 126 else "." for b in f_bytes)
-
-        # 7. Deinterleaving (auto-detect and deinterleave)
-        deinterleaved_bits = None
-        deinterleaved_bits_count = None
-        deint_method = None
-        deint_params = None
-        deint_entropy = None
-        deint_base_entropy = None
-
-        if auto_deinterleave and len(decoded_bits) > 0:
-            deint_res = deinterleaver.auto_detect_and_deinterleave(np.asarray(decoded_bits, dtype=np.uint8))
-            deint_out = deint_res.get("bits")
-            if deint_out is not None:
-                deinterleaved_bits = deint_out.tolist()
-                deinterleaved_bits_count = len(deinterleaved_bits)
-            deint_method = deint_res.get("method")
-            deint_params = deint_res.get("params")
-            if "entropy" in deint_res and deint_res["entropy"] is not None:
-                deint_entropy = float(deint_res["entropy"])
-            if "baseline_entropy" in deint_res and deint_res["baseline_entropy"] is not None:
-                deint_base_entropy = float(deint_res["baseline_entropy"])
 
         return DecodeResponse(
             modulation=mod,
@@ -194,6 +225,7 @@ async def decode_signal(
             deinterleaver_params=deint_params,
             deinterleaver_entropy=deint_entropy,
             deinterleaver_baseline_entropy=deint_base_entropy,
+            deinterleaver_mismatch=deint_mismatch,  # new field
             sync_offset=sync_offset,
             sync_confidence=sync_confidence,
             sync_method=sync_method,

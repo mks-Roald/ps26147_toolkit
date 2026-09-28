@@ -345,13 +345,18 @@ def auto_discover_preamble(
                             best_hits = hits
                             best_stride = stride
 
+                score = 0.0
                 if best_hits >= 2:
                     score = (len(word) ** 1.5) * (best_hits ** 2.0)
-                    if score > best_std_score:
-                        best_std_score = score
-                        best_std_corr = float(np.max(abs_c[peaks_list]))
-                        matched_standard = name
-                        best_period = int(best_stride)
+                elif len(peaks_list) >= 1 and peaks_list[0] <= 64 and abs_c[peaks_list[0]] >= 0.95 and len(word) >= 11:
+                    score = (len(word) ** 1.5) * 4.0
+                    best_stride = len(bitstream) - peaks_list[0]
+
+                if score > best_std_score:
+                    best_std_score = score
+                    best_std_corr = float(np.max(abs_c[peaks_list]))
+                    matched_standard = name
+                    best_period = int(best_stride) if best_stride > 0 else None
 
     return {
         "discovered": (best_ac > 0.15 or matched_standard is not None),

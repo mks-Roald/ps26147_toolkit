@@ -186,3 +186,41 @@ def test_decode_endpoint_llr_mismatch_regression_guard(monkeypatch):
     assert "LLR length mismatch" in detail
 
 
+def test_full_pipeline_bpsk_hello_world():
+    from ps26147_toolkit.correlator import STANDARD_SYNC_WORDS
+    from ps26147_toolkit.fec_decoders import ConvolutionalCodec
+
+    text = "hello world\n" * 4                      # 384 bits
+    payload = np.unpackbits(np.frombuffer(text.encode(), dtype=np.uint8))
+
+    enc = ConvolutionalCodec().encode(payload, flush=True)   # viterbi first
+    pad = np.random.default_rng(7).integers(0, 2, (-len(enc)) % 256).astype(np.uint8)
+    enc = np.concatenate([enc, pad])                          # random pad, NOT zeros
+
+    inter = np.concatenate([                                  # then 16x16 block interleave
+        enc[i:i + 256].reshape(16, 16, order="C").ravel(order="F")
+        for i in range(0, len(enc), 256)
+    ])
+
+    lead = np.random.default_rng(11).integers(0, 2, 64).astype(np.uint8)  # 64 random lead-in bits
+    sync = STANDARD_SYNC_WORDS["Barker-13"].astype(np.uint8)
+    bits = np.concatenate([lead, sync, inter])
+
+    fs, baud = 1_000_000.0, 25_000.0
+    sps = int(fs / baud)
+    base = np.repeat(np.where(bits == 1, 1.0, -1.0), sps)
+    t = np.arange(len(base)) / fs
+    rng = np.random.default_rng(42)
+    sig = (base * np.exp(1j * 2 * np.pi * 50_000 * t)).astype(np.complex64)
+    sig += (rng.normal(0, 0.01, len(sig)) + 1j * rng.normal(0, 0.01, len(sig))).astype(np.complex64)
+
+    r = client.post(
+        "/decode/?fs=1000000.0&fec_scheme=viterbi&sync_word=Barker-13&auto_deinterleave=true",
+        files={"file": ("hw.iq", sig.tobytes(), "application/octet-stream")},
+    )
+    assert r.status_code == 200
+    d = r.json()
+    print("mod:", d.get("modulation"), "| sync:", d.get("sync_offset"), d.get("sync_confidence"),
+          "| deint:", d.get("deinterleaver_method"), "| bits:", d.get("demodulated_bits_count"),
+          "->", d.get("decoded_bits_count"), "| ascii:", d["decoded_ascii"][:60])
+    assert "hello world" in d["decoded_ascii"]
