@@ -116,7 +116,9 @@ def generate_sdr_frame(modulation="QPSK", snr_db=20., baud_rate=50000., fs=1e6,
 @router.websocket("/live")
 async def sdr_live_stream_endpoint(websocket: WebSocket):
     await websocket.accept()
-    config = {"modulation":"QPSK", "snr_db":22., "baud_rate":50000., "fs":1e6, "cfo_hz":500., "is_paused":False, "fps":30}
+    # Each frame performs classification, demodulation, and PSD work. A
+    # moderate default keeps the live demo from monopolizing server CPU.
+    config = {"modulation":"QPSK", "snr_db":22., "baud_rate":50000., "fs":1e6, "cfo_hz":500., "is_paused":False, "fps":12}
     async def listener():
         while True:
             try:

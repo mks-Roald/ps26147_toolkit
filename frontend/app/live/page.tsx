@@ -37,20 +37,28 @@ export default function LiveStreamPage() {
     snr_db: 20,
     baud_rate: 50000,
     cfo_hz: 0,
-    fps: 30,
+    // Keep the analysis stream responsive without reconciling the full
+    // dashboard and charts at the server's maximum frame rate.
+    fps: 12,
   });
 
   const wsRef = useRef<ReturnType<typeof createSDRWebSocket> | null>(null);
   const frameCounterRef = useRef<number>(0);
   const lastFpsCalcTimeRef = useRef<number>(Date.now());
+  const lastFrameRenderRef = useRef<number>(0);
 
   useEffect(() => {
     const ws = createSDRWebSocket(
       (frame) => {
-        setCurrentFrame(frame);
         frameCounterRef.current += 1;
 
         const now = Date.now();
+        // Keep the newest frame, but cap chart and dashboard renders at about
+        // 12 fps when frames arrive in a burst.
+        if (now - lastFrameRenderRef.current >= 80) {
+          lastFrameRenderRef.current = now;
+          setCurrentFrame(frame);
+        }
         if (now - lastFpsCalcTimeRef.current >= 1000) {
           setFpsCount(frameCounterRef.current);
           frameCounterRef.current = 0;
