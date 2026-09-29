@@ -87,6 +87,11 @@ class DecodeResponse(BaseModel):
     sync_offset: Optional[int] = None
     sync_confidence: Optional[float] = None
     sync_method: Optional[str] = None
+    synchronized_bits: Optional[List[int]] = None
+    fec_decoder_result: Optional[Dict[str, Any]] = None
+    errors_corrected: Optional[int] = None
+    demodulation_quality: Optional[Dict[str, Any]] = None
+    fec_ran: bool = False
 
 class CorrelatedFrame(BaseModel):
     start_bit: int

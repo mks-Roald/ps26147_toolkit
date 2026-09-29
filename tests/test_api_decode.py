@@ -215,7 +215,7 @@ def test_full_pipeline_bpsk_hello_world():
     sig += (rng.normal(0, 0.01, len(sig)) + 1j * rng.normal(0, 0.01, len(sig))).astype(np.complex64)
 
     r = client.post(
-        "/decode/?fs=1000000.0&fec_scheme=viterbi&sync_word=Barker-13&auto_deinterleave=true",
+        "/decode/?fs=1000000.0&fec_scheme=viterbi&sync_word=Barker-13&auto_deinterleave=true&auto_detect_sync=true",
         files={"file": ("hw.iq", sig.tobytes(), "application/octet-stream")},
     )
     assert r.status_code == 200
@@ -224,3 +224,11 @@ def test_full_pipeline_bpsk_hello_world():
           "| deint:", d.get("deinterleaver_method"), "| bits:", d.get("demodulated_bits_count"),
           "->", d.get("decoded_bits_count"), "| ascii:", d["decoded_ascii"][:60])
     assert "hello world" in d["decoded_ascii"]
+    # This is the same parameter set sent by the WebUI controls.
+    assert d["fec_scheme"] == "viterbi"
+    assert d["sync_method"] == "sync_word"
+    assert d["sync_confidence"] >= 0.90
+    assert d["deinterleaver_method"] == "block"
+    assert d["deinterleaver_params"] == {"rows": 16, "cols": 16}
+    assert d["fec_ran"] is True
+    assert d["synchronized_bits"]

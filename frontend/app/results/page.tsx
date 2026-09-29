@@ -33,7 +33,7 @@ export default function Results() {
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'waveform' | 'psd' | 'constellation' | 'spectrogram' | 'waterfall'>('waveform');
   const [editingSampleRate, setEditingSampleRate] = useState<boolean>(false);
-  const [fecScheme, setFecScheme] = useState<string>('');
+  const [fecScheme, setFecScheme] = useState<string>('none');
   const [editingFecScheme, setEditingFecScheme] = useState<boolean>(false);
 
   const leaveAnalysis = async () => {
@@ -43,13 +43,13 @@ export default function Results() {
   };
 
   // Fetch full analysis including decode and correlate results
-  const fetchFullAnalysis = async (file: File, sampleRate: number, fecScheme: string = ""): Promise<ProcessResult> => {
+  const fetchFullAnalysis = async (file: File, sampleRate: number, fecScheme: string = "none"): Promise<ProcessResult> => {
     try {
       // Step 1: Process file to get base results
       const processRes = await processFile(file, sampleRate);
 
       // Step 2: Fetch decode results (using provided fecScheme)
-      const decodeRes = await decodeSignal(file, fecScheme, sampleRate);
+      const decodeRes = await decodeSignal(file, fecScheme || 'none', sampleRate);
 
       // Step 3: Fetch correlate results
       const correlateRes = await correlateSignal(file, { sampleRate });
@@ -64,6 +64,14 @@ export default function Results() {
         decoded_bits: decodeRes.decoded_bits,
         decoded_hex: decodeRes.decoded_hex,
         decoded_ascii: decodeRes.decoded_ascii,
+        synchronized_bits: decodeRes.synchronized_bits,
+        fec_ran: decodeRes.fec_ran,
+        fec_decoder_result: decodeRes.fec_decoder_result,
+        errors_corrected: decodeRes.errors_corrected,
+        sync_method: decodeRes.sync_method,
+        sync_confidence: decodeRes.sync_confidence,
+        deinterleaver_method: decodeRes.deinterleaver_method,
+        demodulation_quality: decodeRes.demodulation_quality,
         correlate_result: correlateRes,
         fec_scheme: fecScheme
       };
@@ -281,9 +289,10 @@ export default function Results() {
                       rows.push([]); // Empty row
                     }
 
-                    // Decoded bits (FEC output)
+                    if (data.synchronized_bits) rows.push(['Synchronized Bits', data.synchronized_bits.join('')]);
+                    // Only call the output FEC decoded when a decoder actually ran.
                     if (data.decoded_bits) {
-                      rows.push(['Decoded Bits (FEC Output)', data.decoded_bits.join('')]);
+                      rows.push([data.fec_ran ? 'FEC Decoded Bits' : 'Processed Bits (FEC not run)', data.decoded_bits.join('')]);
                       rows.push(['Decoded Bits Count', data.decoded_bits.length]);
                       if (fecOutput.hex) rows.push(['Decoded Hex (FEC Output)', fecOutput.hex]);
                       if (fecOutput.ascii) rows.push(['Decoded ASCII (FEC Output)', fecOutput.ascii]);
@@ -675,7 +684,7 @@ export default function Results() {
           <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
             <div className="flex items-center space-x-3">
               <h2 className="font-geist font-weight-600 text-lg text-ink">
-                FEC Decoded Output
+                {data.fec_ran ? 'FEC Decoded Output' : 'Processed Bits (FEC not run)'}
               </h2>
               {fecScheme && fecScheme.toLowerCase() !== 'none' && (
                 <span className="px-2.5 py-0.5 rounded-full text-xs font-geist-mono font-weight-500 bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
@@ -893,7 +902,7 @@ export default function Results() {
                   disabled={loading}
                   className="flex-1 bg-canvas-elevated border border-hairline rounded-md px-4 py-2 text-sm font-geist-mono text-ink focus:outline-none focus:ring-2 focus-ring-blue focus:border-blue transition-colors duration-200"
                 >
-                  <option value="">None</option>
+                  <option value="none">None</option>
                   <option value="viterbi">Viterbi</option>
                   <option value="reed-solomon">Reed-Solomon</option>
                   <option value="concatenated">Concatenated</option>

@@ -50,7 +50,7 @@ async def decode_signal(
     file: UploadFile = File(...),
     fs: float = Query(1_000_000.0, description="Target WAV sample rate; default sample rate for IQ data"),
     fec_scheme: str = Query("none", description="FEC Scheme: 'none', 'viterbi', 'reed-solomon', 'concatenated', 'ldpc'"),
-    auto_deinterleave: bool = Query(True, description="Automatically detect and apply deinterleaving"),
+    auto_deinterleave: bool = Query(False, description="Automatically detect deinterleaving; accepted only with a measured Viterbi metric improvement"),
     sync_word: Optional[str] = Query(None, description="Sync word in hex (e.g. '1ACFFC1D' or '0x47') or standard name"),
     auto_detect_sync: bool = Query(True, description="Automatically detect preamble/sync word when sync_word is not given"),
     modulation: Optional[str] = Query(None, description="Modulation override: e.g. 'FSK', '2FSK', 'BPSK', 'QPSK'"),
@@ -80,6 +80,7 @@ async def decode_signal(
         )
 
         raw_bits = demod_res["bits"]
+        raw_bits_snapshot = raw_bits.copy()
         llr = demod_res.get("llr")
         demodulated_bits = raw_bits.tolist()
 
@@ -138,7 +139,7 @@ async def decode_signal(
             sync_confidence = 0.0
             sync_method = "none"
 
-        # 5. Optional FEC Decide - but we will do deinterleave first if needed
+        # Preserve a distinct synchronized stage; raw demodulated bits remain untouched.
         # Determine if we attempted sync detection
         sync_attempted = bool(sync_word) or (auto_detect_sync and len(demod_res["bits"]) > 0)
 
@@ -151,7 +152,8 @@ async def decode_signal(
         deint_base_entropy = None
         deint_mismatch = None
 
-        if auto_deinterleave and len(raw_bits) > 0:
+        synchronized_bits = raw_bits.copy()
+        if auto_deinterleave and fec_scheme.lower() == "viterbi" and len(raw_bits) > 0:
             if fec_scheme.lower() == "viterbi":
                 # Use FEC-based auto detection for Viterbi
                 deint_res = deinterleaver.auto_detect_deinterleave_by_fec(np.asarray(raw_bits, dtype=np.uint8))
@@ -181,12 +183,17 @@ async def decode_signal(
         deint_mismatch = deint_res.get("mismatch")
 
         # 7. FEC Decode (now after deinterleave)
+        fec_res = None
+        fec_metadata = None
+        fec_ran = False
         if fec_scheme.lower() != "none" and len(raw_bits) > 0 and (sync_offset is not None or not sync_attempted):
             # Input to FEC is the deinterleaved bits (or raw if deinterleave failed)
             input_to_fec = deinterleaved_bits_np if deinterleaved_bits_np is not None else raw_bits
             # If deinterleaver was applied (method not none), use hard decision (llr=None)
             llr_to_use = None if deint_method not in (None, "none", "skipped") else llr
             fec_res = fec_decoders.decode_fec(input_to_fec, scheme=fec_scheme, llr=llr_to_use)
+            fec_ran = fec_res.get("decoder", "").lower().find("raw") < 0 and "pass-through" not in fec_res.get("decoder", "").lower()
+            fec_metadata = {key: value for key, value in fec_res.items() if key != "bits"}
             fec_bits_arr = fec_res["bits"]
             decoded_bits = fec_bits_arr.tolist()
         else:
@@ -219,7 +226,7 @@ async def decode_signal(
             decoded_bits=decoded_bits,
             decoded_hex=decoded_hex,
             decoded_ascii=decoded_ascii,
-            demodulated_bits=demodulated_bits,
+            demodulated_bits=raw_bits_snapshot.tolist(),
             demodulated_bits_count=len(demodulated_bits),
             deinterleaved_bits=deinterleaved_bits,
             deinterleaved_bits_count=deinterleaved_bits_count,
@@ -231,6 +238,11 @@ async def decode_signal(
             sync_offset=sync_offset,
             sync_confidence=sync_confidence,
             sync_method=sync_method,
+            synchronized_bits=synchronized_bits.tolist(),
+            fec_decoder_result=fec_metadata,
+            errors_corrected=(fec_res.get("errors_corrected", fec_res.get("corrected_errors")) if fec_res else None),
+            demodulation_quality={"evm_db": float(demod_res["evm_db"]), "evm_percent": float(demod_res["evm_percent"]), "snr_db": float(params["snr_db"])},
+            fec_ran=fec_ran,
         )
 
     except HTTPException:

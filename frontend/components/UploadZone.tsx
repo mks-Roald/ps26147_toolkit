@@ -36,6 +36,10 @@ export default function UploadZone({
   const [error, setError] = useState<string | null>(null);
   const [progressPercent, setProgressPercent] = useState<number>(0);
   const [progressStage, setProgressStage] = useState<string>('');
+  const [fecScheme, setFecScheme] = useState('none');
+  const [syncWord, setSyncWord] = useState('');
+  const [autoDetectSync, setAutoDetectSync] = useState(false);
+  const [autoDeinterleave, setAutoDeinterleave] = useState(false);
 
   // Utility function to extract sample rate from WAV file
   const getSampleRateFromWav = async (file: File): Promise<number | null> => {
@@ -191,7 +195,7 @@ export default function UploadZone({
 
       // Fetch decode results
       setProgressStage('Fetching decode results…');
-      const decodeRes = await decodeSignal(file, "", sampleRate);
+      const decodeRes = await decodeSignal(file, fecScheme, sampleRate, { syncWord, autoDetectSync, autoDeinterleave });
 
       // Fetch correlate results
       setProgressStage('Fetching correlation results…');
@@ -207,6 +211,15 @@ export default function UploadZone({
         decoded_bits: decodeRes.decoded_bits,
         decoded_hex: decodeRes.decoded_hex,
         decoded_ascii: decodeRes.decoded_ascii,
+        synchronized_bits: decodeRes.synchronized_bits,
+        fec_scheme: decodeRes.fec_scheme,
+        fec_ran: decodeRes.fec_ran,
+        fec_decoder_result: decodeRes.fec_decoder_result,
+        errors_corrected: decodeRes.errors_corrected,
+        sync_method: decodeRes.sync_method,
+        sync_confidence: decodeRes.sync_confidence,
+        deinterleaver_method: decodeRes.deinterleaver_method,
+        demodulation_quality: decodeRes.demodulation_quality,
         correlate_result: correlateRes,
       };
 
@@ -284,6 +297,16 @@ export default function UploadZone({
         <h3 className="text-ink font-geist font-weight-600 text-lg mb-4">Configuration</h3>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <label className="text-xs text-ink-faint">FEC scheme
+            <select aria-label="FEC scheme" value={fecScheme} onChange={(e) => setFecScheme(e.target.value)} disabled={loading} className="mt-2 w-full bg-canvas-elevated border border-hairline rounded-md px-3 py-2 text-sm text-ink">
+              <option value="none">None</option><option value="viterbi">Viterbi</option><option value="reed-solomon">Reed-Solomon</option><option value="concatenated">Concatenated</option><option value="ldpc">LDPC</option>
+            </select>
+          </label>
+          <label className="text-xs text-ink-faint">Sync word
+            <input aria-label="Sync word" value={syncWord} onChange={(e) => setSyncWord(e.target.value)} placeholder="e.g. Barker-13" disabled={loading} className="mt-2 w-full bg-canvas-elevated border border-hairline rounded-md px-3 py-2 text-sm text-ink" />
+          </label>
+          <label className="flex items-center gap-2 text-xs text-ink-faint"><input aria-label="Auto sync" type="checkbox" checked={autoDetectSync} onChange={(e) => setAutoDetectSync(e.target.checked)} disabled={loading} />Auto sync</label>
+          <label className="flex items-center gap-2 text-xs text-ink-faint"><input aria-label="Interleaving enabled" type="checkbox" checked={autoDeinterleave} onChange={(e) => setAutoDeinterleave(e.target.checked)} disabled={loading} />Auto deinterleave (metric gated)</label>
           <div className="sm:col-span-2">
             <label className="block text-xs font-geist-mono font-weight-500 text-ink-faint mb-2">
               Sampling Rate (Hz)

@@ -49,6 +49,14 @@ export interface ProcessResult {
   decoded_bits?: number[];
   decoded_hex?: string;
   decoded_ascii?: string;
+  synchronized_bits?: number[];
+  fec_ran?: boolean;
+  fec_decoder_result?: Record<string, any>;
+  errors_corrected?: number;
+  sync_method?: string;
+  sync_confidence?: number;
+  deinterleaver_method?: string;
+  demodulation_quality?: Record<string, number>;
   correlate_result?: CorrelateResult;
 }
 
@@ -79,6 +87,15 @@ export interface DecodeResult {
   deinterleaver_params?: Record<string, any>;
   deinterleaver_entropy?: number;
   deinterleaver_baseline_entropy?: number;
+  synchronized_bits?: number[];
+  fec_ran?: boolean;
+  fec_decoder_result?: Record<string, any>;
+  errors_corrected?: number;
+  demodulation_quality?: Record<string, number>;
+  sync_method?: string;
+  sync_confidence?: number;
+  center_frequency_hz?: number;
+  baud_rate?: number;
 }
 
 export interface CorrelatedFrame {
@@ -224,11 +241,16 @@ export async function classifySignal(file: File, sampleRate: number = 1000000): 
 export async function decodeSignal(
   file: File,
   fecScheme: string = "none",
-  sampleRate: number = 1000000
+  sampleRate: number = 1000000,
+  options: { syncWord?: string; autoDetectSync?: boolean; autoDeinterleave?: boolean } = {}
 ): Promise<DecodeResult> {
+  const params = new URLSearchParams({ fec_scheme: fecScheme || "none", fs: sampleRate.toString() });
+  if (options.syncWord) params.set("sync_word", options.syncWord);
+  params.set("auto_detect_sync", String(options.autoDetectSync ?? false));
+  params.set("auto_deinterleave", String(options.autoDeinterleave ?? false));
   const form = new FormData();
   form.append("file", file);
-  const res = await fetch(`${API_BASE}/decode/?fec_scheme=${fecScheme}&fs=${sampleRate}`, {
+  const res = await fetch(`${API_BASE}/decode/?${params.toString()}`, {
     method: "POST",
     body: form,
   });
