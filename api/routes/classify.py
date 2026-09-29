@@ -24,6 +24,7 @@ async def classify_signal(
         
         analysis = analyze_signal(sig, sample_rate)
         result = analysis.classification
+        params = analysis.parameters
         
         # Format features safely as key-value dict
         raw_feats = result.get("features")
@@ -46,7 +47,11 @@ async def classify_signal(
         return ClassifyResponse(
             modulation=result["modulation"],
             confidence=float(result["confidence"]),
-            features=features_dict
+            features=features_dict,
+            center_frequency_hz=float(params["center_frequency_hz"]),
+            bandwidth_hz=float(params["bandwidth_hz"]),
+            baud_rate=float(params["baud_rate"]),
+            snr_db=float(params["snr_db"]),
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Classification error: {str(e)}")

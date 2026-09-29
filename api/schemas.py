@@ -8,6 +8,10 @@ class ClassifyResponse(BaseModel):
     modulation: str
     confidence: float
     features: Optional[Dict[str, float]] = None
+    center_frequency_hz: Optional[float] = None
+    bandwidth_hz: Optional[float] = None
+    baud_rate: Optional[float] = None
+    snr_db: Optional[float] = None
 
 class ConstellationPoint(BaseModel):
     i: float
@@ -42,6 +46,10 @@ class ProcessResponse(BaseModel):
 class DecodeResponse(BaseModel):
     modulation: str
     confidence: float
+    center_frequency_hz: Optional[float] = None
+    bandwidth_hz: Optional[float] = None
+    baud_rate: Optional[float] = None
+    snr_db: Optional[float] = None
     num_bits: int
     bit_string_preview: str
     hex_preview: str

@@ -205,6 +205,10 @@ async def decode_signal(
         return DecodeResponse(
             modulation=mod,
             confidence=conf,
+            center_frequency_hz=fc,
+            bandwidth_hz=float(params["bandwidth_hz"]),
+            baud_rate=baud_rate,
+            snr_db=float(params["snr_db"]),
             num_bits=int(demod_res["num_bits"]),
             bit_string_preview=demod_res["bit_string_preview"],
             hex_preview=demod_res["hex_preview"],
