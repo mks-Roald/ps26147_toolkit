@@ -83,6 +83,24 @@ export default function Layout({ children }: LayoutProps) {
             <ThemeToggle />
           </div>
         </div>
+        <nav aria-label="Mobile navigation" className="md:hidden max-w-7xl mx-auto mt-3 flex gap-2 overflow-x-auto pb-1">
+          {navLinks.map((link) => {
+            const active = pathname === link.href;
+            return (
+              <Link
+                key={`mobile-${link.href}`}
+                href={link.href}
+                aria-current={active ? 'page' : undefined}
+                className={`shrink-0 rounded-md border px-3 py-2 text-xs font-geist-mono transition-colors ${active
+                  ? 'border-cyan-400/60 bg-cyan-500/10 text-cyan-400'
+                  : 'border-hairline text-ink-muted hover:text-ink'
+                }`}
+              >
+                {link.label}
+              </Link>
+            );
+          })}
+        </nav>
       </header>
 
       {/* Main Content Area */}
