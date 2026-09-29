@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, DragEvent } from 'react';
 import { processFile, startAsyncProcess, pollJobStatus, decodeSignal, correlateSignal } from '@/services/api';
 import { useRouter } from 'next/navigation';
 import Button from '@/components/base/Button';
+import { clearSignalSession, saveSignalFile, saveSignalResult, readSignalSession, writeSignalSession } from '@/services/signalStorage';
 
 interface UploadZoneProps {
   onSuccess?: (result: any) => void;
@@ -166,6 +167,13 @@ export default function UploadZone({
     setProgressStage('Initializing file upload…');
 
     try {
+      const previousSession = readSignalSession();
+      if (previousSession) await clearSignalSession(previousSession.signalSessionId);
+      sessionStorage.removeItem('signalSession');
+      const signalSessionId = crypto.randomUUID();
+      await saveSignalFile(signalSessionId, file);
+      writeSignalSession({ signalSessionId, filename: file.name, fileSize: file.size, sampleRate, resultStatus: 'processing' });
+
       let processRes;
       if (useAsync) {
         setProgressStage('Submitting job to background task queue…');
@@ -202,17 +210,8 @@ export default function UploadZone({
         correlate_result: correlateRes,
       };
 
-      // Store results and navigate
-      sessionStorage.setItem('lastResult', JSON.stringify(fullRes));
-      sessionStorage.setItem('lastFileName', file.name);
-      sessionStorage.setItem('lastFileSize', String(file.size));
-
-      // Store original file as base64 for later use (sample rate re-processing, FEC decoder)
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        sessionStorage.setItem('lastFileBase64', reader.result?.toString() || '');
-      };
-      reader.readAsDataURL(file);
+      await saveSignalResult(signalSessionId, fullRes);
+      writeSignalSession({ signalSessionId, filename: file.name, fileSize: file.size, sampleRate, resultStatus: 'ready' });
 
       if (onSuccess) {
         onSuccess(fullRes);

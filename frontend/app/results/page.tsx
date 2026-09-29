@@ -23,6 +23,7 @@ interface ExtendedProcessResult extends ProcessResult {
 }
 import Card from '@/components/base/Card';
 import WaterfallPlot from '@/components/WaterfallPlot';
+import { clearSignalSession, loadSignalFile, loadSignalResult, saveSignalResult, readSignalSession, writeSignalSession } from '@/services/signalStorage';
 
 export default function Results() {
   const router = useRouter();
@@ -34,6 +35,12 @@ export default function Results() {
   const [editingSampleRate, setEditingSampleRate] = useState<boolean>(false);
   const [fecScheme, setFecScheme] = useState<string>('');
   const [editingFecScheme, setEditingFecScheme] = useState<boolean>(false);
+
+  const leaveAnalysis = async () => {
+    const session = readSignalSession();
+    if (session) await clearSignalSession(session.signalSessionId);
+    sessionStorage.removeItem('signalSession');
+  };
 
   // Fetch full analysis including decode and correlate results
   const fetchFullAnalysis = async (file: File, sampleRate: number, fecScheme: string = ""): Promise<ProcessResult> => {
@@ -66,33 +73,6 @@ export default function Results() {
     }
   };
 
-  // Helper to decode base64 string back to File object
-  const base64ToFile = (base64String: string, fileName: string): File | null => {
-    try {
-      // Remove data URL prefix if present
-      const base64Data = base64String.split(',')[1] || base64String;
-      const binaryString = window.atob(base64Data);
-      const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-      }
-      // Determine MIME type from file extension
-      const ext = fileName.split('.').pop()?.toLowerCase() || '';
-      const mimeTypes: Record<string, string> = {
-        wav: 'audio/wav',
-        iq: 'application/octet-stream',
-        bin: 'application/octet-stream',
-        raw: 'application/octet-stream',
-        'sigmf-data': 'application/octet-stream'
-      };
-      const mimeType = mimeTypes[ext] || 'application/octet-stream';
-      return new File([bytes], fileName, { type: mimeType });
-    } catch (error) {
-      console.error('Failed to decode base64 to File:', error);
-      return null;
-    }
-  };
-
   // Handle sample rate changes with file re-processing
   const handleSampleRateChange = async () => {
     if (!data) return;
@@ -103,29 +83,20 @@ export default function Results() {
     setLoading(true);
 
     try {
-      // Retrieve the original file from sessionStorage
-      const base64String = sessionStorage.getItem('lastFileBase64');
-      const fileName = sessionStorage.getItem('lastFileName') || 'signal.file';
-
-      if (!base64String) {
-        throw new Error('Original file data not found in storage');
-      }
-
-      // Decode base64 back to File object
-      const originalFile = base64ToFile(base64String, fileName);
+      const session = readSignalSession();
+      if (!session) throw new Error('Signal session information is unavailable.');
+      const originalFile = await loadSignalFile(session.signalSessionId, session.filename);
       if (!originalFile) {
-        throw new Error('Failed to reconstruct file from stored data');
+        throw new Error('Original signal file is unavailable in IndexedDB.');
       }
 
       // Re-process with new sample rate (including decode and correlate)
       const res = await fetchFullAnalysis(originalFile, newSampleRate, fecScheme);
 
-      // Update data and session storage
+      // Update the cached result in IndexedDB and keep only metadata in sessionStorage.
       setData(res);
-      sessionStorage.setItem('lastResult', JSON.stringify(res));
-      sessionStorage.setItem('lastFileName', fileName);
-      sessionStorage.setItem('lastFileSize', String(originalFile.size));
-      sessionStorage.setItem('lastSampleRate', String(newSampleRate));
+      await saveSignalResult(session.signalSessionId, res);
+      writeSignalSession({ ...session, sampleRate: newSampleRate, resultStatus: 'ready' });
 
     } catch (err: any) {
       setError(err.message || 'Failed to re-process signal with new sample rate');
@@ -136,46 +107,22 @@ export default function Results() {
   };
 
   useEffect(() => {
-    const stored = sessionStorage.getItem('lastResult');
-    const storedName = sessionStorage.getItem('lastFileName') || 'Signal File';
-    if (stored) {
+    let active = true;
+    (async () => {
+      const session = readSignalSession();
+      if (!session) { router.push('/'); return; }
       try {
-        setData(JSON.parse(stored));
-        setFileName(storedName);
-      } catch {
-        // Failed to parse
-      }
-      setLoading(false);
-    } else {
-      router.push('/');
-    }
+        const storedResult = await loadSignalResult<ProcessResult>(session.signalSessionId);
+        if (!active || !storedResult) { if (active) router.push('/'); return; }
+        setData(storedResult);
+        setFileName(session.filename || 'Signal File');
+        setFecScheme((storedResult as ExtendedProcessResult).fec_scheme || '');
+      } catch (err: any) {
+        if (active) setError(err.message || 'Unable to load analysis from IndexedDB.');
+      } finally { if (active) setLoading(false); }
+    })();
+    return () => { active = false; };
   }, [router]);
-
-  // Handle sample rate changes from session storage
-  useEffect(() => {
-    const storedSampleRate = sessionStorage.getItem('lastSampleRate');
-    if (storedSampleRate) {
-      const parsed = parseInt(storedSampleRate, 10);
-      if (!isNaN(parsed) && parsed > 0) {
-        setData(prev => prev ? { ...prev, sample_rate: parsed } : null);
-        // Clear the stored value to avoid re-applying on every render
-        sessionStorage.removeItem('lastSampleRate');
-      }
-    }
-  }, []);
-
-  // Set FEC scheme from stored result
-  useEffect(() => {
-    const stored = sessionStorage.getItem('lastResult');
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored);
-        setFecScheme(parsed.fec_scheme || '');
-      } catch {
-        // Failed to parse
-      }
-    }
-  }, []);
 
   if (loading) {
     return (
@@ -246,7 +193,7 @@ export default function Results() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
           <div>
             <div className="flex items-center space-x-3 mb-4">
-              <Link href="/" className="flex items-center space-x-2 px-4 py-2 rounded-full bg-cyan-950/60 border border-cyan-500/30 text-cyan-400 text-xs font-geist-mono font-weight-500 hover:bg-cyan-950/70 transition-colors duration-200">
+              <Link href="/" onClick={(event) => { if (loading) event.preventDefault(); else void leaveAnalysis(); }} className="flex items-center space-x-2 px-4 py-2 rounded-full bg-cyan-950/60 border border-cyan-500/30 text-cyan-400 text-xs font-geist-mono font-weight-500 hover:bg-cyan-950/70 transition-colors duration-200">
                 ← Back to Upload
               </Link>
               <span>/</span>
@@ -260,6 +207,7 @@ export default function Results() {
           <div className="flex items-center space-x-4">
             <Link
               href="/"
+              onClick={(event) => { if (loading) event.preventDefault(); else void leaveAnalysis(); }}
               className="inline-flex items-center space-x-2 px-6 py-3 rounded-pill bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20 transition-all duration-200 dark:bg-cyan-400/20 dark:text-cyan-500 dark:hover:bg-cyan-400/30"
             >
               <span>Analyse another Signal</span>

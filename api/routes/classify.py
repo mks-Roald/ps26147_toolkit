@@ -15,11 +15,11 @@ FEATURE_NAMES = [
 @router.post("/", response_model=ClassifyResponse)
 async def classify_signal(
     file: UploadFile = File(...),
-    fs: float = Query(1_000_000.0, description="Sampling rate in Hz if not in metadata")
+    fs: float = Query(1_000_000.0, description="Target WAV sample rate; default sample rate for IQ data")
 ):
     try:
         contents = await file.read()
-        sig, sample_rate = load_signal_from_bytes(contents, file.filename or "", default_fs=fs)
+        sig, sample_rate = load_signal_from_bytes(contents, file.filename or "", default_fs=fs, target_fs=fs)
         
         clf = classifier.ModulationClassifier()
         result = clf.predict_with_confidence(sig, fs=sample_rate)

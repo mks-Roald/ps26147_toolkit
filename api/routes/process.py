@@ -16,7 +16,9 @@ router = APIRouter()
 
 def _process_signal_core(contents: bytes, filename: str, sample_rate_hint: float) -> ProcessResponse:
     """Core synchronous processing pipeline reused by both sync and async handlers."""
-    sig, sample_rate = load_signal_from_bytes(contents, filename or "", default_fs=sample_rate_hint)
+    sig, sample_rate = load_signal_from_bytes(
+        contents, filename or "", default_fs=sample_rate_hint, target_fs=sample_rate_hint
+    )
     
     num_samples = len(sig)
     if num_samples == 0:
@@ -149,7 +151,7 @@ def _async_process_worker(job_id: str, contents: bytes, filename: str, fs: float
 @router.post("/file", response_model=ProcessResponse)
 async def process_file_sync(
     file: UploadFile = File(...),
-    fs: float = Query(1_000_000.0, description="Sampling rate in Hz if not in metadata")
+    fs: float = Query(1_000_000.0, description="Target WAV sample rate; default sample rate for IQ data")
 ):
     """Synchronous file processing endpoint."""
     try:
@@ -163,7 +165,7 @@ async def process_file_sync(
 async def process_file_async(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    fs: float = Query(1_000_000.0, description="Sampling rate in Hz if not in metadata")
+    fs: float = Query(1_000_000.0, description="Target WAV sample rate; default sample rate for IQ data")
 ):
     """Asynchronous file processing endpoint: returns job ID immediately and processes in background."""
     contents = await file.read()

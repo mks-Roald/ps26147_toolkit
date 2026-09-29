@@ -46,7 +46,7 @@ def _resolve_sync_word(sync_word: Optional[str] = None) -> Optional[np.ndarray]:
 @router.post("/", response_model=DecodeResponse)
 async def decode_signal(
     file: UploadFile = File(...),
-    fs: float = Query(1_000_000.0, description="Sampling rate in Hz if not in metadata"),
+    fs: float = Query(1_000_000.0, description="Target WAV sample rate; default sample rate for IQ data"),
     fec_scheme: str = Query("none", description="FEC Scheme: 'none', 'viterbi', 'reed-solomon', 'concatenated', 'ldpc'"),
     auto_deinterleave: bool = Query(True, description="Automatically detect and apply deinterleaving"),
     sync_word: Optional[str] = Query(None, description="Sync word in hex (e.g. '1ACFFC1D' or '0x47') or standard name"),
@@ -55,7 +55,7 @@ async def decode_signal(
 ):
     try:
         contents = await file.read()
-        sig, sample_rate = load_signal_from_bytes(contents, file.filename or "", default_fs=fs)
+        sig, sample_rate = load_signal_from_bytes(contents, file.filename or "", default_fs=fs, target_fs=fs)
 
         # 1. Classify modulation (or use override if provided)
         if modulation:

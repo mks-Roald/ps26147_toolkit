@@ -1,15 +1,18 @@
 import io
 import tempfile
+from fractions import Fraction
 from pathlib import Path
-from typing import Tuple
+from typing import Optional, Tuple
 import numpy as np
 import scipy.io.wavfile as wavfile
+from scipy.signal import resample_poly
 from ps26147_toolkit.preprocess import load_iq, load_wav
 
 def load_signal_from_bytes(
     contents: bytes,
     filename: str = "",
     default_fs: float = 1_000_000.0,
+    target_fs: Optional[float] = None,
 ) -> Tuple[np.ndarray, float]:
     """Parse uploaded file bytes into a numpy signal array and sample rate.
     
@@ -17,6 +20,14 @@ def load_signal_from_bytes(
     """
     if len(contents) == 0:
         raise ValueError("Uploaded file is empty.")
+
+    def resample_wav(signal: np.ndarray, source_fs: float) -> Tuple[np.ndarray, float]:
+        if target_fs is None or float(target_fs) == float(source_fs):
+            return signal, float(source_fs)
+        if not np.isfinite(target_fs) or target_fs <= 0:
+            raise ValueError("Target sample rate must be a finite positive number.")
+        ratio = Fraction(float(target_fs) / float(source_fs)).limit_denominator(100_000)
+        return resample_poly(signal, ratio.numerator, ratio.denominator).astype(np.float32), float(target_fs)
 
     # Check for WAV signature or extension
     if filename.lower().endswith(".wav") or (contents[:4] == b"RIFF" and contents[8:12] == b"WAVE"):
@@ -28,7 +39,7 @@ def load_signal_from_bytes(
             sig = sig.astype(np.float32)
             if np.issubdtype(orig_dtype, np.integer):
                 sig = sig / np.iinfo(orig_dtype).max
-            return sig, float(sr)
+            return resample_wav(sig, float(sr))
         except Exception:
             pass
 
@@ -43,7 +54,7 @@ def load_signal_from_bytes(
     try:
         if suffix.lower() == ".wav":
             sig, meta = load_wav(tmp_path)
-            return sig, meta.fs
+            return resample_wav(sig, float(meta.fs))
         else:
             sig, meta = load_iq(tmp_path, dtype="auto", fs=default_fs)
             return sig, meta.fs
