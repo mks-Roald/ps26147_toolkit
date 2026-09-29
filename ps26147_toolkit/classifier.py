@@ -579,15 +579,19 @@ class ModulationClassifier:
                 classes = list(probs_dict.keys())
                 pred_idx = int(np.argmax(probs))
                 model_class = classes[pred_idx]
-                rule_evidence = rule_based_classify(signal, fs=fs, fc=fc) if include_diagnostics else None
                 p_max = float(probs[pred_idx])
+                rule_evidence = rule_based_classify(signal, fs=fs, fc=fc) if include_diagnostics else None
                 pred_class = model_class
                 decision_source = "random_forest"
 
                 # The bundled training corpus is synthetic. For out-of-domain
                 # signals, defer to the established rules when the forest has
                 # no clear winner instead of confidently surfacing a weak guess.
-                if rule_evidence is not None and p_max < 0.60:
+                if p_max < 0.70 and rule_evidence is None:
+                    # Live streaming skips optional diagnostics for speed, but
+                    # still needs the rule fallback when the model is unsure.
+                    rule_evidence = rule_based_classify(signal, fs=fs, fc=fc)
+                if rule_evidence is not None and p_max < 0.70:
                     pred_class = rule_evidence
                     decision_source = "rules_low_model_confidence"
 
