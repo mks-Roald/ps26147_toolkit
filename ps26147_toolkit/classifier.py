@@ -533,16 +533,8 @@ class ModulationClassifier:
         self.is_fitted = True
 
     def predict(self, signal: np.ndarray, fs: float = 1000000.0, fc: float = None) -> str:
-        """Predict modulation using the baseband rule-based classifier with chunked processing.
-
-        The deterministic rule-based engine is authoritative because it
-        downconverts to complex baseband before computing cumulant/instantaneous
-        features — the only regime where those thresholds are meaningful.  The
-        RF model is retained for optional use (``predict_proba``) but is not
-        used for the modulation decision.
-        """
-        features = _process_signal_chunks(signal, fs=fs, fc=fc)
-        return rule_based_classify(signal=np.array([]), fs=fs, fc=fc, features=features)
+        """Return the top class from the unified classifier decision."""
+        return self.predict_with_confidence(signal, fs=fs, fc=fc)["modulation"]
 
     def predict_proba(
         self, signal: np.ndarray, fs: float = 1000000.0, fc: float = None
@@ -574,6 +566,7 @@ class ModulationClassifier:
                 classes = list(probs_dict.keys())
                 pred_idx = int(np.argmax(probs))
                 pred_class = classes[pred_idx]
+                rule_evidence = rule_based_classify(signal, fs=fs, fc=fc)
                 p_max = float(probs[pred_idx])
 
                 # Shannon entropy certainty metric in [0.0, 1.0]
@@ -589,6 +582,9 @@ class ModulationClassifier:
                     "probabilities": probs_dict,
                     "cumulants": cum,
                     "features": feats.tolist(),
+                    "rule_evidence": rule_evidence,
+                    "agreement": bool(rule_evidence == pred_class),
+                    "diagnostics": {"classifier_disagreement": rule_evidence != pred_class},
                 }
             except Exception:
                 pass
@@ -611,3 +607,4 @@ class ModulationClassifier:
         self.pipeline = joblib.load(str(model_path))
         self.model_path = Path(model_path)
         self.is_fitted = True
+

@@ -1,5 +1,6 @@
 from fastapi import APIRouter, UploadFile, File, Query, HTTPException
 from ps26147_toolkit import classifier
+from ps26147_toolkit.analysis import analyze_signal
 from api.schemas import ClassifyResponse
 from api.utils import load_signal_from_bytes
 import numpy as np
@@ -21,8 +22,8 @@ async def classify_signal(
         contents = await file.read()
         sig, sample_rate = load_signal_from_bytes(contents, file.filename or "", default_fs=fs, target_fs=fs)
         
-        clf = classifier.ModulationClassifier()
-        result = clf.predict_with_confidence(sig, fs=sample_rate)
+        analysis = analyze_signal(sig, sample_rate)
+        result = analysis.classification
         
         # Format features safely as key-value dict
         raw_feats = result.get("features")

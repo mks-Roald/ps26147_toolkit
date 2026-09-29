@@ -1,6 +1,7 @@
 from fastapi import APIRouter, UploadFile, File, Query, HTTPException, BackgroundTasks
 import numpy as np
 from ps26147_toolkit import classifier, parameter_extractor, feature_extractor
+from ps26147_toolkit.analysis import analyze_signal
 from api.schemas import (
     ProcessResponse,
     ConstellationPoint,
@@ -27,15 +28,13 @@ def _process_signal_core(contents: bytes, filename: str, sample_rate_hint: float
     duration_sec = float(num_samples / sample_rate)
 
     # 1. Modulation Classification
-    clf = classifier.ModulationClassifier()
-    clf_res = clf.predict_with_confidence(sig, fs=sample_rate)
+    analysis = analyze_signal(sig, sample_rate)
+    clf_res = analysis.classification
     mod = clf_res["modulation"]
     conf = float(clf_res["confidence"])
 
     # 2. Extract Signal Parameters
-    params = parameter_extractor.extract_signal_parameters(
-        sig, fs=sample_rate, modulation=mod
-    )
+    params = analysis.parameters
 
     # 3. Waveform data (real part, capped at 1000 samples)
     real_wave = np.real(sig)
@@ -44,9 +43,10 @@ def _process_signal_core(contents: bytes, filename: str, sample_rate_hint: float
 
     # 4. Constellation data (up to 400 points)
     constellation_pts = []
-    if np.iscomplexobj(sig):
-        c_step = max(1, len(sig) // 400)
-        c_subset = sig[::c_step][:400]
+    if np.iscomplexobj(analysis.baseband_signal):
+        symbols = analysis.baseband_signal
+        c_step = max(1, len(symbols) // 400)
+        c_subset = symbols[::c_step][:400]
         constellation_pts = [
             ConstellationPoint(i=float(pt.real), q=float(pt.imag))
             for pt in c_subset

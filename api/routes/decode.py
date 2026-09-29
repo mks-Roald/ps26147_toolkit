@@ -4,8 +4,10 @@ from typing import Optional, List, Dict, Any
 import numpy as np
 from fastapi import APIRouter, UploadFile, File, Query, HTTPException
 from ps26147_toolkit import classifier, parameter_extractor, demodulator, fec_decoders, deinterleaver, correlator
+from ps26147_toolkit.analysis import analyze_signal
 from api.schemas import DecodeResponse
 from api.utils import load_signal_from_bytes
+from ps26147_toolkit.deinterleaver import _byte_entropy
 
 logger = logging.getLogger(__name__)
 
@@ -57,27 +59,23 @@ async def decode_signal(
         contents = await file.read()
         sig, sample_rate = load_signal_from_bytes(contents, file.filename or "", default_fs=fs, target_fs=fs)
 
-        # 1. Classify modulation (or use override if provided)
-        if modulation:
-            mod = modulation
-            conf = 1.0
-        else:
-            clf = classifier.ModulationClassifier()
-            clf_res = clf.predict_with_confidence(sig, fs=sample_rate)
-            mod = clf_res["modulation"]
-            conf = float(clf_res["confidence"])
+        # 1. Shared canonical analysis (classification and parameters)
+        analysis = analyze_signal(sig, sample_rate, modulation=modulation)
+        clf_res = analysis.classification
+        mod = clf_res["modulation"]
+        conf = float(clf_res["confidence"])
 
         # 2. Extract parameters (baud rate & center frequency)
-        params = parameter_extractor.extract_signal_parameters(sig, fs=sample_rate, modulation=mod)
+        params = analysis.parameters
         baud_rate = float(params["baud_rate"])
         fc = float(params["center_frequency_hz"])
 
         # 3. Demodulate signal
         demod_res = demodulator.demodulate_signal(
-            sig,
+            analysis.baseband_signal,
             fs=sample_rate,
             modulation=mod,
-            center_freq=fc,
+            center_freq=0.0,
             baud_rate=baud_rate if baud_rate > 0 else None,
         )
 
