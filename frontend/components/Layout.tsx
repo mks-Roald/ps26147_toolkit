@@ -29,7 +29,7 @@ export default function Layout({ children }: LayoutProps) {
 
   const navLinks = [
     { href: '/', label: 'Upload & Process' },
-    { href: '/live', label: '🔴 Live SDR Stream' },
+    { href: '/live', label: '🔴 Live SDR Sim' },
     { href: '/results', label: 'Dashboard Results' },
     { href: '/about', label: 'About & Toolkit' },
   ];

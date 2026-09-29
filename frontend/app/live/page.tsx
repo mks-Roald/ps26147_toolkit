@@ -130,7 +130,7 @@ export default function LiveStreamPage() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <div className="inline-flex items-center space-x-3 px-4 py-2 rounded-full bg-cyan-950/60 border border-cyan-500/30 text-cyan-400 text-xs font-geist-mono font-weight-500 mb-4">
-              <span>🛰️ REAL-TIME SDR STREAMING PIPELINE</span>
+              <span>🛰️ REAL-TIME SDR SIMULATION PIPELINE</span>
             </div>
             <h1 className="text-3xl sm:text-4xl font-geist font-weight-600 tracking-tighter text-ink">
               Live RF Signal Oscilloscope & Constellation
@@ -140,7 +140,7 @@ export default function LiveStreamPage() {
           <div className="flex items-center space-x-4">
             <div className="flex items-center space-x-3 px-4 py-2 rounded-full bg-emerald-950/60 border border-emerald-500/50 text-emerald-400 font-geist-mono font-weight-500">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-              <span>{isConnected ? 'LIVE WS STREAM' : 'DISCONNECTED'}</span>
+              <span>{isConnected ? 'LIVE SIM' : 'DISCONNECTED'}</span>
             </div>
 
             <div className="flex items-center space-x-3 px-4 py-2 rounded-full bg-slate-950 border border-hairline text-slate-300 font-geist-mono font-weight-500">
@@ -218,7 +218,7 @@ export default function LiveStreamPage() {
           <p className="text-2xl font-geist font-weight-600 text-emerald-400">
             #{currentFrame?.frame_idx ?? 0}
           </p>
-          <p className="text-xs font-geist-mono text-ink-faint mt-2">Streaming over WebSocket</p>
+          <p className="text-xs font-geist-mono text-ink-faint mt-2">Simulation active</p>
         </Card>
       </section>
 
