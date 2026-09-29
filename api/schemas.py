@@ -26,6 +26,18 @@ class WaterfallData(BaseModel):
     frequency: List[float]
     power_db: List[List[float]]
 
+class ConstellationMetadata(BaseModel):
+    representation: str
+    symbol_rate: Optional[float] = None
+    timing_recovery_used: bool = False
+    carrier_recovery_used: bool = False
+
+class FskVisualizationData(BaseModel):
+    instantaneous_frequency: List[float]
+    recovered_frequency_states: List[float]
+    symbol_frequency_values: List[float]
+    frequency_state_count: int
+
 class ProcessResponse(BaseModel):
     modulation: str
     confidence: float
@@ -39,7 +51,10 @@ class ProcessResponse(BaseModel):
     duration_sec: float
     sample_rate: float
     waveform_data: List[float]
+    recovered_symbols: Optional[List[ConstellationPoint]] = None
     constellation_data: Optional[List[ConstellationPoint]] = None
+    constellation_metadata: Optional[ConstellationMetadata] = None
+    fsk_visualization_data: Optional[FskVisualizationData] = None
     psd_data: Optional[List[PsdPoint]] = None
     waterfall_data: Optional[WaterfallData] = None
 

@@ -16,6 +16,13 @@ export interface WaterfallData {
   power_db: number[][];
 }
 
+export interface FskVisualizationData {
+  instantaneous_frequency: number[];
+  recovered_frequency_states: number[];
+  symbol_frequency_values: number[];
+  frequency_state_count: number;
+}
+
 export interface ProcessResult {
   modulation: string;
   confidence: number;
@@ -29,7 +36,10 @@ export interface ProcessResult {
   duration_sec: number;
   sample_rate: number;
   waveform_data: number[];
+  recovered_symbols?: ConstellationPoint[];
   constellation_data?: ConstellationPoint[];
+  constellation_metadata?: { representation: string; symbol_rate?: number; timing_recovery_used: boolean; carrier_recovery_used: boolean };
+  fsk_visualization_data?: FskVisualizationData;
   psd_data?: PsdPoint[];
   waterfall_data?: WaterfallData;
   demodulated_bits?: number[];

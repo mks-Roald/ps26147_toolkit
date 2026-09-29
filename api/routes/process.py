@@ -9,7 +9,10 @@ from api.schemas import (
     WaterfallData,
     AsyncJobResponse,
     JobStatusResponse,
+    FskVisualizationData,
+    ConstellationMetadata,
 )
+from ps26147_toolkit.demodulator import demodulate_signal, symbol_timing_recovery
 from api.utils import load_signal_from_bytes
 from api.task_manager import task_manager
 
@@ -41,25 +44,48 @@ def _process_signal_core(contents: bytes, filename: str, sample_rate_hint: float
     step = max(1, len(real_wave) // 1000)
     waveform_subset = real_wave[::step][:1000].tolist()
 
-    # 4. Constellation data (up to 400 points)
-    constellation_pts = []
-    if np.iscomplexobj(analysis.baseband_signal):
-        symbols = analysis.baseband_signal
-        c_step = max(1, len(symbols) // 400)
-        c_subset = symbols[::c_step][:400]
-        constellation_pts = [
-            ConstellationPoint(i=float(pt.real), q=float(pt.imag))
-            for pt in c_subset
-        ]
-    else:
-        from scipy.signal import hilbert
-        analytic_sig = hilbert(sig)
-        c_step = max(1, len(analytic_sig) // 400)
-        c_subset = analytic_sig[::c_step][:400]
-        constellation_pts = [
-            ConstellationPoint(i=float(pt.real), q=float(pt.imag))
-            for pt in c_subset
-        ]
+    # 4. Modulation-aware visualization, derived only after authoritative analysis.
+    constellation_pts = None
+    recovered_symbols = None
+    constellation_metadata = None
+    fsk_visualization = None
+    symbol_rate = float(params["baud_rate"])
+    if "FSK" in mod.upper():
+        bb = analysis.baseband_signal
+        phase_delta = np.angle(bb[1:] * np.conj(bb[:-1]))
+        inst_freq = phase_delta * sample_rate / (2.0 * np.pi)
+        symbol_freq = symbol_timing_recovery(
+            inst_freq.astype(np.complex64), sample_rate, symbol_rate
+        ).real
+        if symbol_freq.size == 0:
+            symbol_freq = inst_freq
+        # Cluster discriminator samples into the detected number of frequency states.
+        state_count = 4 if "4FSK" in mod.upper() else 2
+        quantiles = np.linspace(0, 1, state_count + 1)[1:-1]
+        edges = np.quantile(symbol_freq, quantiles) if symbol_freq.size else np.array([])
+        centers = []
+        assignments = np.digitize(symbol_freq, edges)
+        for state in range(state_count):
+            vals = symbol_freq[assignments == state]
+            centers.append(float(np.mean(vals)) if vals.size else float(np.quantile(symbol_freq, (state + .5) / state_count)))
+        fsk_visualization = FskVisualizationData(
+            instantaneous_frequency=[float(x) for x in inst_freq[::max(1, len(inst_freq)//1200)][:1200]],
+            recovered_frequency_states=centers,
+            symbol_frequency_values=[float(x) for x in symbol_freq[:1200]],
+            frequency_state_count=state_count,
+        )
+    elif mod.upper() in {"BPSK", "QPSK", "8PSK", "16QAM", "64QAM"}:
+        demod = demodulate_signal(analysis.baseband_signal, sample_rate, mod,
+                                  center_freq=0.0, baud_rate=symbol_rate)
+        syms = np.asarray(demod["symbols"])
+        if len(syms) > 1600:
+            syms = syms[np.linspace(0, len(syms)-1, 1600).astype(int)]
+        recovered_symbols = [ConstellationPoint(i=float(x.real), q=float(x.imag)) for x in syms]
+        constellation_metadata = ConstellationMetadata(
+            representation="recovered_symbols", symbol_rate=symbol_rate,
+            timing_recovery_used=symbol_rate > 0 and sample_rate / symbol_rate > 1,
+            carrier_recovery_used=True,
+        )
 
     # 5. PSD Data for spectrum chart
     freqs, psd = feature_extractor.compute_psd(sig, sample_rate, nperseg=min(512, max(32, len(sig))))
@@ -112,7 +138,10 @@ def _process_signal_core(contents: bytes, filename: str, sample_rate_hint: float
         duration_sec=duration_sec,
         sample_rate=float(sample_rate),
         waveform_data=waveform_subset,
+        recovered_symbols=recovered_symbols,
         constellation_data=constellation_pts,
+        constellation_metadata=constellation_metadata,
+        fsk_visualization_data=fsk_visualization,
         psd_data=psd_pts,
         waterfall_data=waterfall_obj,
     )

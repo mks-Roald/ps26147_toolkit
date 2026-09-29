@@ -146,7 +146,9 @@ export default function Results() {
 
   const waveformData = data.waveform_data ? data.waveform_data.map((v, i) => ({ x: i, y: v })) : [];
   const psdData = data.psd_data ? data.psd_data.map((p) => ({ freq: Math.round(p.freq), psd: Number(p.psd.toFixed(2)) })) : [];
-  const constellationData = data.constellation_data ? data.constellation_data.map((pt) => ({ i: Number(pt.i.toFixed(4)), q: Number(pt.q.toFixed(4)) })) : [];
+  const constellationData = data.recovered_symbols ? data.recovered_symbols.map((pt) => ({ i: Number(pt.i.toFixed(4)), q: Number(pt.q.toFixed(4)) })) : [];
+  const isFsk = data.modulation.toUpperCase().includes('FSK');
+  const fskPlotData = data.fsk_visualization_data?.instantaneous_frequency.map((frequency, x) => ({ x, frequency })) ?? [];
 
   // Helper to format decoded bits to Hex and ASCII
   const getFecOutputs = () => {
@@ -469,7 +471,7 @@ export default function Results() {
                   : 'text-ink-muted hover:text-ink hover:bg-canvas/90'
               }`}
             >
-              I/Q Constellation Diagram
+              {isFsk ? 'Frequency States' : 'I/Q Constellation Diagram'}
             </button>
             <button
               onClick={() => setActiveTab('spectrogram')}
@@ -552,7 +554,17 @@ export default function Results() {
         {activeTab === 'constellation' && (
           <div className="space-y-4">
             <div className="h-96 w-full flex items-center justify-center">
-              {constellationData.length > 0 ? (
+              {isFsk && fskPlotData.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={fskPlotData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                    <XAxis dataKey="x" tick={{ fill: '#64748b', fontSize: 10 }} label={{ value: 'Sample Index', position: 'insideBottom', offset: -5, fill: '#64748b', fontSize: 10 }} />
+                    <YAxis tick={{ fill: '#64748b', fontSize: 10 }} label={{ value: 'Frequency (Hz)', angle: -90, position: 'insideLeft', fill: '#64748b', fontSize: 10 }} />
+                    <Tooltip />
+                    <Line type="monotone" dataKey="frequency" name="Instantaneous Frequency" stroke="#38bdf8" dot={false} isAnimationActive={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : !isFsk && constellationData.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
                   <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }} style={{ backgroundColor: 'transparent' }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
@@ -568,10 +580,10 @@ export default function Results() {
                   </ScatterChart>
                 </ResponsiveContainer>
               ) : (
-                <p className="text-ink-faint text-xs font-geist-mono">Constellation points not available for this real signal.</p>
+                <p className="text-ink-faint text-xs font-geist-mono">{isFsk ? 'Frequency state data not available.' : 'Recovered symbols not available.'}</p>
               )}
             </div>
-            <p className="text-center text-xs font-geist-mono text-ink-faint">Normalized complex baseband constellation scatter diagram</p>
+            <p className="text-center text-xs font-geist-mono text-ink-faint">{isFsk ? 'FSK Symbol Frequencies' : 'Recovered, timing and carrier corrected I/Q symbols'}</p>
           </div>
         )}
       </section>
