@@ -553,20 +553,28 @@ class ModulationClassifier:
         return {cls: (1.0 if cls == pred else 0.0) for cls in MODULATION_CLASSES}
 
     def predict_with_confidence(
-        self, signal: np.ndarray, fs: float = 1000000.0, fc: float = None
+        self, signal: np.ndarray, fs: float = 1000000.0, fc: float = None,
+        include_diagnostics: bool = True,
     ) -> dict:
         """Predict modulation with confidence score, class probabilities, and diagnostic cumulants."""
-        cum = compute_cumulants(signal, fs=fs, fc=fc)
+        cum = compute_cumulants(signal, fs=fs, fc=fc) if include_diagnostics else None
         feats = extract_features(signal, fs=fs, fc=fc)
 
         if self.is_fitted and self.pipeline is not None:
             try:
-                probs_dict = self.predict_proba(signal, fs=fs, fc=fc)
+                # `feats` was extracted above for the result payload; reuse it
+                # for the estimator instead of running the full feature pass a
+                # second time on every live frame.
+                probabilities = self.pipeline.predict_proba(feats.reshape(1, -1))[0]
+                probs_dict = {
+                    str(cls): float(probability)
+                    for cls, probability in zip(self.pipeline.classes_, probabilities)
+                }
                 probs = np.array(list(probs_dict.values()))
                 classes = list(probs_dict.keys())
                 pred_idx = int(np.argmax(probs))
                 pred_class = classes[pred_idx]
-                rule_evidence = rule_based_classify(signal, fs=fs, fc=fc)
+                rule_evidence = rule_based_classify(signal, fs=fs, fc=fc) if include_diagnostics else None
                 p_max = float(probs[pred_idx])
 
                 # Shannon entropy certainty metric in [0.0, 1.0]
@@ -581,10 +589,10 @@ class ModulationClassifier:
                     "confidence": confidence,
                     "probabilities": probs_dict,
                     "cumulants": cum,
-                    "features": feats.tolist(),
+                    "features": feats.tolist() if include_diagnostics else [],
                     "rule_evidence": rule_evidence,
-                    "agreement": bool(rule_evidence == pred_class),
-                    "diagnostics": {"classifier_disagreement": rule_evidence != pred_class},
+                    "agreement": bool(rule_evidence == pred_class) if include_diagnostics else None,
+                    "diagnostics": {"classifier_disagreement": rule_evidence != pred_class} if include_diagnostics else {},
                 }
             except Exception:
                 pass

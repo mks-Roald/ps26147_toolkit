@@ -5,6 +5,10 @@ import numpy as np
 from scipy.signal import hilbert
 from . import classifier, parameter_extractor
 
+# Model loading includes disk I/O and happens once per process. Reuse the same
+# fitted detector for uploaded and streaming signal analysis.
+_CLASSIFIER = classifier.ModulationClassifier()
+
 
 @dataclass
 class SignalAnalysis:
@@ -18,7 +22,8 @@ class SignalAnalysis:
     diagnostics: dict[str, Any] = field(default_factory=dict)
 
 
-def analyze_signal(signal: np.ndarray, fs: float, modulation: str | None = None) -> SignalAnalysis:
+def analyze_signal(signal: np.ndarray, fs: float, modulation: str | None = None,
+                   include_diagnostics: bool = True) -> SignalAnalysis:
     raw = np.asarray(signal).copy()
     analytic = raw.astype(np.complex64) if np.iscomplexobj(raw) else hilbert(raw).astype(np.complex64)
     dc_removed = analytic - np.mean(analytic) if analytic.size else analytic
@@ -27,8 +32,9 @@ def analyze_signal(signal: np.ndarray, fs: float, modulation: str | None = None)
     params = parameter_extractor.extract_signal_parameters(dc_removed, fs=fs, modulation=modulation)
     fc = float(params["center_frequency_hz"])
     bb = classifier.downconvert_baseband(dc_removed, fs=fs, fc=fc)
-    clf = classifier.ModulationClassifier()
-    decision = clf.predict_with_confidence(bb, fs=fs, fc=0.0)
+    decision = _CLASSIFIER.predict_with_confidence(
+        bb, fs=fs, fc=0.0, include_diagnostics=include_diagnostics
+    )
     chosen = modulation or decision["modulation"]
     if modulation:
         decision = dict(decision, modulation=modulation, confidence=1.0)

@@ -37,7 +37,7 @@ export default function LiveStreamPage() {
     snr_db: 20,
     baud_rate: 50000,
     cfo_hz: 0,
-    fps: 15,
+    fps: 30,
   });
 
   const wsRef = useRef<ReturnType<typeof createSDRWebSocket> | null>(null);
@@ -110,6 +110,10 @@ export default function LiveStreamPage() {
 
   const constellationData = currentFrame?.constellation || [];
   const psdData = currentFrame?.psd || [];
+  const isFrequencyView = currentFrame?.visualization === 'frequency';
+  const frequencyData = currentFrame?.frequency_states || [];
+  const frequencyMin = Math.min(...frequencyData.map((point) => point.frequency), -1);
+  const frequencyMax = Math.max(...frequencyData.map((point) => point.frequency), 1);
 
   return (
     <div className="space-y-12 max-w-7xl mx-auto">
@@ -157,10 +161,11 @@ export default function LiveStreamPage() {
             <h3 className="font-geist font-weight-600 text-lg text-ink mb-0 ml-3">Live Modulation</h3>
           </div>
           <p className="text-2xl font-geist font-weight-600 text-cyan-400">
-            {currentFrame?.detected_modulation || '—'}
+            {currentFrame ? `${currentFrame.configured_modulation} → ${currentFrame.detected_modulation}` : '—'}
           </p>
           <p className="text-xs font-geist-mono text-ink-faint mt-2">
-            Confidence: <span className="text-emerald-400 font-geist-mono">{currentFrame ? `${(currentFrame.confidence * 100).toFixed(0)}%` : '—'}</span>
+            Detected confidence: <span className="text-emerald-400 font-geist-mono">{currentFrame ? `${(currentFrame.confidence * 100).toFixed(0)}%` : '—'}</span>
+            <span className="block mt-1">Ground truth: {currentFrame ? (currentFrame.classification_correct ? 'Correct' : 'Mismatch') : '—'}</span>
           </p>
         </Card>
 
@@ -173,9 +178,9 @@ export default function LiveStreamPage() {
             <h3 className="font-geist font-weight-600 text-lg text-ink mb-0 ml-3">Channel SNR</h3>
           </div>
           <p className="text-2xl font-geist font-weight-600 text-blue-400">
-            {currentFrame ? `${currentFrame.snr_db.toFixed(1)} dB` : '—'}
+            {currentFrame ? `${currentFrame.configured_snr.toFixed(1)} dB` : '—'}
           </p>
-          <p className="text-xs font-geist-mono text-ink-faint mt-2">Simulated AWGN</p>
+            <p className="text-xs font-geist-mono text-ink-faint mt-2">Estimated: {currentFrame?.estimated_snr == null ? '—' : `${currentFrame.estimated_snr.toFixed(1)} dB`}</p>
         </Card>
 
         {/* Baud Rate */}
@@ -187,10 +192,10 @@ export default function LiveStreamPage() {
             <h3 className="font-geist font-weight-600 text-lg text-ink mb-0 ml-3">Symbol Rate</h3>
           </div>
           <p className="text-2xl font-geist font-weight-600 text-fuchsia-400">
-            {currentFrame ? `${(currentFrame.baud_rate / 1000).toFixed(1)} kBd` : '—'}
+            {currentFrame ? `${(currentFrame.configured_baud / 1000).toFixed(1)} / ${(currentFrame.estimated_baud / 1000).toFixed(1)} kBd` : '—'}
           </p>
           <p className="text-xs font-geist-mono text-ink-faint mt-2">
-            Fs: {currentFrame ? `${(currentFrame.sample_rate / 1e6).toFixed(1)} MS/s` : '—'}
+            Fs: {currentFrame ? `${(currentFrame.sample_rate / 1e6).toFixed(1)} MS/s · CFO ${currentFrame.configured_cfo.toFixed(0)} / ${currentFrame.estimated_cfo == null ? '—' : currentFrame.estimated_cfo.toFixed(0)} Hz` : '—'}
           </p>
         </Card>
 
@@ -215,24 +220,25 @@ export default function LiveStreamPage() {
         <Card className="col-span-1 lg:col-span-1 p-6">
           <div className="space-y-4">
             <h3 className="flex items-center justify-between">
-              <span className="font-geist font-weight-600 text-lg text-ink">I/Q Constellation Diagram</span>
-              <span className="text-xs font-geist-mono text-ink-faint">{constellationData.length} live symbols</span>
+              <span className="font-geist font-weight-600 text-lg text-ink">{currentFrame?.visualization === 'frequency' ? 'Instantaneous Frequency States' : 'Recovered I/Q Symbols'}</span>
+              <span className="text-xs font-geist-mono text-ink-faint">{currentFrame?.visualization === 'frequency' ? 'FSK discriminator output' : `${constellationData.length} recovered symbols`}</span>
             </h3>
             <div className="h-96 w-full">
-              <ResponsiveContainer width="100%" height="100%">
+              {isFrequencyView ? <svg className="h-full w-full" viewBox="0 0 600 360" role="img" aria-label="FSK instantaneous frequency states" preserveAspectRatio="none">
+                {[0, 1, 2, 3, 4].map((step) => <g key={step}>
+                  <line x1={40 + step * 130} y1="20" x2={40 + step * 130} y2="330" stroke="#1e293b" />
+                  <line x1="40" y1={20 + step * 77.5} x2="560" y2={20 + step * 77.5} stroke="#1e293b" />
+                </g>)}
+                {frequencyData.map((point, index) => <circle key={index} cx={40 + (index / Math.max(1, frequencyData.length - 1)) * 520} cy={20 + (1 - (point.frequency - frequencyMin) / Math.max(1, frequencyMax - frequencyMin)) * 310} r="3" fill="#00f2fe" />)}
+              </svg> : <ResponsiveContainer width="100%" height="100%">
                 <ScatterChart margin={{ top: 10, right: 10, bottom: 10, left: 10 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
                   <XAxis type="number" dataKey="i" domain={[-2, 2]} tick={{ fill: '#64748b', fontSize: 10 }} />
                   <YAxis type="number" dataKey="q" domain={[-2, 2]} tick={{ fill: '#64748b', fontSize: 10 }} />
-                  <Tooltip
-                    contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', fontSize: '12px', color: '#e2e8f0' }}
-                    itemStyle={{ color: '#94a3b8' }}
-                    labelStyle={{ color: '#e2e8f0' }}
-                    cursor={{ strokeDasharray: '3 3', stroke: '#334155' }}
-                  />
-                  <Scatter data={constellationData} fill="#00f2fe" isAnimationActive={false} />
+                  <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', fontSize: '12px', color: '#e2e8f0' }} />
+                  <Scatter data={constellationData} fill="#00f2fe" shape="circle" isAnimationActive={false} />
                 </ScatterChart>
-              </ResponsiveContainer>
+              </ResponsiveContainer>}
             </div>
           </div>
         </Card>
