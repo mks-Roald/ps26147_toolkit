@@ -39,6 +39,7 @@ export interface ProcessResult {
   recovered_symbols?: ConstellationPoint[];
   constellation_data?: ConstellationPoint[];
   constellation_metadata?: { representation: string; symbol_rate?: number; timing_recovery_used: boolean; carrier_recovery_used: boolean };
+  sync_metadata?: { offset?: number; confidence?: number; method?: string; word?: string };
   fsk_visualization_data?: FskVisualizationData;
   psd_data?: PsdPoint[];
   waterfall_data?: WaterfallData;
@@ -65,7 +66,6 @@ export interface ProcessResult {
   timing_quality?: number;
   carrier_quality?: number;
   evm_db?: number;
-  synchronized_bits?: number[];
   fec_scheme?: string;
 }
 
