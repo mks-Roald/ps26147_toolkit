@@ -44,5 +44,6 @@ pythonpath = ["."]
 filterwarnings = [
     "ignore::DeprecationWarning",
 ]
+markers = ["regression: end-to-end API, simulator, storage, and pipeline regressions"]
 
 

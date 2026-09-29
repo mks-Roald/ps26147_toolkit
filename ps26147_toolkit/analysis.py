@@ -35,6 +35,15 @@ def analyze_signal(signal: np.ndarray, fs: float, modulation: str | None = None,
     decision = _CLASSIFIER.predict_with_confidence(
         bb, fs=fs, fc=0.0, include_diagnostics=include_diagnostics
     )
+    # Reject obvious out-of-domain captures (noise-like full-band spectra or
+    # non-finite parameter estimates) instead of presenting a forced RF label
+    # as a confident modulation decision. Explicit caller hints remain intact.
+    if modulation is None and include_diagnostics:
+        snr = float(params.get("snr_db", 0.0))
+        bandwidth = float(params.get("bandwidth_hz", 0.0))
+        if (len(raw) < 32 or not np.isfinite(snr) or not np.isfinite(bandwidth)
+                or snr < 0.0 or (bandwidth >= 0.9 * float(fs) and snr < 3.0)):
+            decision = dict(decision, modulation="UNKNOWN", confidence=0.0)
     chosen = modulation or decision["modulation"]
     if modulation:
         decision = dict(decision, modulation=modulation, confidence=1.0)
