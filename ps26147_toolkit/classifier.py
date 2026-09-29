@@ -488,7 +488,7 @@ class ModulationClassifier:
 
     def __init__(self, model_path: str = None):
         if model_path is None:
-            default_model = Path(__file__).resolve().parents[1] / "model.pkl"
+            default_model = Path(__file__).resolve().parents[1] / "model.joblib"
             self.model_path = default_model
         else:
             self.model_path = Path(model_path)
@@ -497,11 +497,16 @@ class ModulationClassifier:
         self.is_fitted = False
 
         if self.model_path.exists():
-            try:
-                self.pipeline = joblib.load(str(self.model_path))
-                self.is_fitted = True
-            except Exception:
-                self._build_and_train_default()
+            self.pipeline = joblib.load(str(self.model_path))
+            expected_features = len(extract_features(np.zeros(64, dtype=np.complex64)))
+            actual_features = getattr(self.pipeline, "n_features_in_", None)
+            if actual_features != expected_features:
+                raise ValueError(
+                    f"Incompatible classifier artifact {self.model_path}: "
+                    f"expects {actual_features} features; current extractor emits {expected_features}. "
+                    "Rebuild it with scripts/train_classifier.py."
+                )
+            self.is_fitted = True
         else:
             self._build_and_train_default()
 
