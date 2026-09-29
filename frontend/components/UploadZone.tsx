@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, DragEvent } from 'react';
-import { processFile, startAsyncProcess, pollJobStatus, decodeSignal, correlateSignal } from '@/services/api';
+import { createAnalysisSession } from '@/services/api';
 import { useRouter } from 'next/navigation';
 import Button from '@/components/base/Button';
 import { clearSignalSession, saveSignalFile, saveSignalResult, readSignalSession, writeSignalSession } from '@/services/signalStorage';
@@ -37,7 +37,7 @@ export default function UploadZone({
   const [progressPercent, setProgressPercent] = useState<number>(0);
   const [progressStage, setProgressStage] = useState<string>('');
   const [fecScheme, setFecScheme] = useState('none');
-  const [syncWord, setSyncWord] = useState('');
+  const [syncWord, setSyncWord] = useState('Barker-13');
   const [autoDetectSync, setAutoDetectSync] = useState(false);
   const [autoDeinterleave, setAutoDeinterleave] = useState(false);
 
@@ -178,50 +178,9 @@ export default function UploadZone({
       await saveSignalFile(signalSessionId, file);
       writeSignalSession({ signalSessionId, filename: file.name, fileSize: file.size, sampleRate, resultStatus: 'processing' });
 
-      let processRes;
-      if (useAsync) {
-        setProgressStage('Submitting job to background task queue…');
-        const job = await startAsyncProcess(file, sampleRate);
-        setProgressStage('Job queued. Polling execution status…');
-
-        processRes = await pollJobStatus(job.job_id, (status) => {
-          setProgressPercent(Math.round(status.progress * 100));
-          setProgressStage(status.stage);
-        });
-      } else {
-        setProgressStage('Processing synchronous request…');
-        processRes = await processFile(file, sampleRate);
-      }
-
-      // Fetch decode results
-      setProgressStage('Fetching decode results…');
-      const decodeRes = await decodeSignal(file, fecScheme, sampleRate, { syncWord, autoDetectSync, autoDeinterleave });
-
-      // Fetch correlate results
-      setProgressStage('Fetching correlation results…');
-      const correlateRes = await correlateSignal(file, { sampleRate });
-
-      // Merge all results
-      const fullRes = {
-        ...processRes,
-        demodulated_bits: decodeRes.demodulated_bits,
-        demodulated_bits_count: decodeRes.demodulated_bits_count,
-        deinterleaved_bits: decodeRes.deinterleaved_bits,
-        deinterleaved_bits_count: decodeRes.deinterleaved_bits_count,
-        decoded_bits: decodeRes.decoded_bits,
-        decoded_hex: decodeRes.decoded_hex,
-        decoded_ascii: decodeRes.decoded_ascii,
-        synchronized_bits: decodeRes.synchronized_bits,
-        fec_scheme: decodeRes.fec_scheme,
-        fec_ran: decodeRes.fec_ran,
-        fec_decoder_result: decodeRes.fec_decoder_result,
-        errors_corrected: decodeRes.errors_corrected,
-        sync_method: decodeRes.sync_method,
-        sync_confidence: decodeRes.sync_confidence,
-        deinterleaver_method: decodeRes.deinterleaver_method,
-        demodulation_quality: decodeRes.demodulation_quality,
-        correlate_result: correlateRes,
-      };
+      setProgressStage('Running authoritative signal analysis…');
+      setProgressPercent(25);
+      const fullRes = await createAnalysisSession(file, sampleRate, { fecScheme, syncWord, autoDetectSync, autoDeinterleave });
 
       await saveSignalResult(signalSessionId, fullRes);
       writeSignalSession({ signalSessionId, filename: file.name, fileSize: file.size, sampleRate, resultStatus: 'ready' });

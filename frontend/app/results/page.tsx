@@ -16,7 +16,7 @@ import {
   AreaChart,
   Area,
 } from 'recharts';
-import { ProcessResult, processFile, DecodeResult, CorrelateResult, decodeSignal, correlateSignal } from '@/services/api';
+import { ProcessResult, createAnalysisSession } from '@/services/api';
 
 interface ExtendedProcessResult extends ProcessResult {
   fec_scheme: string;
@@ -42,43 +42,8 @@ export default function Results() {
     sessionStorage.removeItem('signalSession');
   };
 
-  // Fetch full analysis including decode and correlate results
   const fetchFullAnalysis = async (file: File, sampleRate: number, fecScheme: string = "none"): Promise<ProcessResult> => {
-    try {
-      // Step 1: Process file to get base results
-      const processRes = await processFile(file, sampleRate);
-
-      // Step 2: Fetch decode results (using provided fecScheme)
-      const decodeRes = await decodeSignal(file, fecScheme || 'none', sampleRate);
-
-      // Step 3: Fetch correlate results
-      const correlateRes = await correlateSignal(file, { sampleRate });
-
-      // Merge all results
-      const extendedResult: ExtendedProcessResult = {
-        ...processRes,
-        demodulated_bits: decodeRes.demodulated_bits,
-        demodulated_bits_count: decodeRes.demodulated_bits_count,
-        deinterleaved_bits: decodeRes.deinterleaved_bits,
-        deinterleaved_bits_count: decodeRes.deinterleaved_bits_count,
-        decoded_bits: decodeRes.decoded_bits,
-        decoded_hex: decodeRes.decoded_hex,
-        decoded_ascii: decodeRes.decoded_ascii,
-        synchronized_bits: decodeRes.synchronized_bits,
-        fec_ran: decodeRes.fec_ran,
-        fec_decoder_result: decodeRes.fec_decoder_result,
-        errors_corrected: decodeRes.errors_corrected,
-        sync_method: decodeRes.sync_method,
-        sync_confidence: decodeRes.sync_confidence,
-        deinterleaver_method: decodeRes.deinterleaver_method,
-        demodulation_quality: decodeRes.demodulation_quality,
-        correlate_result: correlateRes,
-        fec_scheme: fecScheme
-      };
-      return extendedResult;
-    } catch (err) {
-      throw err;
-    }
+    return createAnalysisSession(file, sampleRate, { fecScheme, syncWord: data?.sync_metadata?.word || 'Barker-13', autoDetectSync: false, autoDeinterleave: fecScheme.toLowerCase() === 'viterbi' });
   };
 
   // Handle sample rate changes with file re-processing
@@ -858,14 +823,12 @@ export default function Results() {
                   onChange={(e) => setData({ ...data, sample_rate: Number(e.target.value) })}
                   onKeyDown={async (e) => {
                     if (e.key === "Enter") {
+                      e.currentTarget.blur();
                       await handleSampleRateChange();
                     }
                     if (e.key === "Escape") {
                       setEditingSampleRate(false); // cancel edit
                     }
-                  }}
-                  onBlur={async (e) => {
-                    await handleSampleRateChange();
                   }}
                   min="1"
                   step="1"
@@ -892,12 +855,7 @@ export default function Results() {
                 <select
                   value={fecScheme}
                   onChange={(e) => {
-                    const value = e.target.value;
-                    setFecScheme(value);
-                    // Trigger re-processing with new FEC scheme
-                    if (data) {
-                      handleSampleRateChange(); // This will re-process with current sample rate and new FEC scheme
-                    }
+                    setFecScheme(e.target.value);
                   }}
                   disabled={loading}
                   className="flex-1 bg-canvas-elevated border border-hairline rounded-md px-4 py-2 text-sm font-geist-mono text-ink focus:outline-none focus:ring-2 focus-ring-blue focus:border-blue transition-colors duration-200"

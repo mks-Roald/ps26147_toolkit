@@ -58,6 +58,24 @@ export interface ProcessResult {
   deinterleaver_method?: string;
   demodulation_quality?: Record<string, number>;
   correlate_result?: CorrelateResult;
+  session_id?: string;
+  pipeline_stages?: Record<string, string>;
+  classifier_probabilities?: Record<string, number>;
+  parameter_confidence?: Record<string, number>;
+  timing_quality?: number;
+  carrier_quality?: number;
+  evm_db?: number;
+  synchronized_bits?: number[];
+  fec_scheme?: string;
+}
+
+export async function createAnalysisSession(file: File, sampleRate = 1000000, options: { fecScheme?: string; syncWord?: string; autoDetectSync?: boolean; autoDeinterleave?: boolean } = {}): Promise<ProcessResult> {
+  const form = new FormData(); form.append("file", file);
+  const params = new URLSearchParams({ fs: String(sampleRate), fec_scheme: options.fecScheme || "none", auto_detect_sync: String(options.autoDetectSync ?? true), auto_deinterleave: String(options.autoDeinterleave ?? false) });
+  if (options.syncWord) params.set("sync_word", options.syncWord);
+  const res = await fetch(`${API_BASE}/process/session?${params}`, { method: "POST", body: form });
+  if (!res.ok) throw new Error(`API error (${res.status}): ${await res.text()}`);
+  return res.json();
 }
 
 export interface ClassifyResult {

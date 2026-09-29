@@ -57,6 +57,35 @@ class ProcessResponse(BaseModel):
     fsk_visualization_data: Optional[FskVisualizationData] = None
     psd_data: Optional[List[PsdPoint]] = None
     waterfall_data: Optional[WaterfallData] = None
+    session_id: Optional[str] = None
+    pipeline_stages: Dict[str, str] = {}
+    classifier_probabilities: Optional[Dict[str, float]] = None
+    parameter_confidence: Optional[Dict[str, float]] = None
+    timing_quality: Optional[float] = None
+    carrier_quality: Optional[float] = None
+    evm_db: Optional[float] = None
+    demodulated_bits: Optional[List[int]] = None
+    demodulated_bits_count: Optional[int] = None
+    synchronized_bits: Optional[List[int]] = None
+    deinterleaved_bits: Optional[List[int]] = None
+    decoded_bits: Optional[List[int]] = None
+    sync_metadata: Optional[Dict[str, Any]] = None
+    deinterleaver_metadata: Optional[Dict[str, Any]] = None
+    fec_metadata: Optional[Dict[str, Any]] = None
+    fec_decoder_result: Optional[Dict[str, Any]] = None
+    fec_scheme: Optional[str] = None
+    correlate_result: Optional[Dict[str, Any]] = None
+    sync_offset: Optional[int] = None
+    sync_confidence: Optional[float] = None
+    sync_method: Optional[str] = None
+    fec_ran: bool = False
+    decoded_bits_count: int = 0
+    decoded_hex: Optional[str] = None
+    decoded_ascii: Optional[str] = None
+    deinterleaved_bits_count: Optional[int] = None
+    deinterleaver_method: Optional[str] = None
+    demodulation_quality: Optional[Dict[str, Any]] = None
+    errors_corrected: Optional[int] = None
 
 class DecodeResponse(BaseModel):
     modulation: str
