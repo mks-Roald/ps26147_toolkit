@@ -578,26 +578,49 @@ class ModulationClassifier:
                 probs = np.array(list(probs_dict.values()))
                 classes = list(probs_dict.keys())
                 pred_idx = int(np.argmax(probs))
-                pred_class = classes[pred_idx]
+                model_class = classes[pred_idx]
                 rule_evidence = rule_based_classify(signal, fs=fs, fc=fc) if include_diagnostics else None
                 p_max = float(probs[pred_idx])
+                pred_class = model_class
+                decision_source = "random_forest"
+
+                # The bundled training corpus is synthetic. For out-of-domain
+                # signals, defer to the established rules when the forest has
+                # no clear winner instead of confidently surfacing a weak guess.
+                if rule_evidence is not None and p_max < 0.60:
+                    pred_class = rule_evidence
+                    decision_source = "rules_low_model_confidence"
 
                 # Shannon entropy certainty metric in [0.0, 1.0]
                 n_cls = len(classes)
                 h_max = np.log2(n_cls) if n_cls > 1 else 1.0
                 entropy = -np.sum(probs * np.log2(probs + 1e-12))
                 entropy_certainty = float(np.clip(1.0 - (entropy / h_max), 0.0, 1.0))
-                confidence = float(np.clip(p_max * 0.5 + entropy_certainty * 0.5, 0.0, 1.0))
+                confidence = (
+                    0.85 if decision_source == "rules_low_model_confidence"
+                    else float(np.clip(p_max * 0.5 + entropy_certainty * 0.5, 0.0, 1.0))
+                )
+                output_probs = probs_dict
+                if decision_source == "rules_low_model_confidence":
+                    output_probs = {
+                        cls: (1.0 if cls == pred_class else 0.0)
+                        for cls in MODULATION_CLASSES
+                    }
 
                 return {
                     "modulation": pred_class,
                     "confidence": confidence,
-                    "probabilities": probs_dict,
+                    "probabilities": output_probs,
                     "cumulants": cum,
                     "features": feats.tolist() if include_diagnostics else [],
                     "rule_evidence": rule_evidence,
                     "agreement": bool(rule_evidence == pred_class) if include_diagnostics else None,
-                    "diagnostics": {"classifier_disagreement": rule_evidence != pred_class} if include_diagnostics else {},
+                    "diagnostics": {
+                        "classifier_disagreement": rule_evidence != model_class,
+                        "decision_source": decision_source,
+                        "model_prediction": model_class,
+                        "model_confidence": p_max,
+                    } if include_diagnostics else {},
                 }
             except Exception:
                 pass
