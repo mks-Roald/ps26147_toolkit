@@ -150,7 +150,8 @@ export default function LiveStreamPage() {
             <button
               onClick={togglePause}
               disabled={!isConnected}
-              className={`flex items-center space-x-2 px-5 py-2.5 rounded-pill font-geist font-weight-500 transition-all duration-200 hover:bg-ink/90 ${isPaused ? 'bg-ink text-on-primary' : 'bg-canvas-elevated text-ink border-hairline'}`}
+              data-state={isPaused ? 'paused' : 'running'}
+              className="live-stream-toggle flex items-center space-x-2 px-5 py-2.5 rounded-pill font-geist font-weight-500"
             >
               <span>{isPaused ? '▶ Resume' : '⏸ Pause'}</span>
             </button>
