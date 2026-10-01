@@ -204,7 +204,7 @@ def generate_synthetic_dataset(
 
     for cls in classes:
         for _ in range(n_samples_per_class):
-            snr_db = np.random.uniform(4.0, 30.0)
+            snr_db = np.random.uniform(-20.0, 30.0)
             alpha = np.random.uniform(0.2, 0.5)
             rrc = rrc_filter(num_taps=49, alpha=alpha, sps=sps)
 
@@ -389,22 +389,36 @@ class ModulationClassifier:
         """Return posterior class probabilities for all modulation classes."""
         if self.is_fitted and self.pipeline is not None:
             try:
-                feats = extract_features(signal, fs=fs, fc=fc).reshape(1, -1)
-                probs = self.pipeline.predict_proba(feats)[0]
+                baseband = downconvert_baseband(signal, fs, fc=fc)
+                feats = extract_features(baseband, fs=fs)
+                # If pipeline was trained on 22 features (16 base + 6 radial), append radial features
+                expected_n = getattr(self.pipeline.named_steps.get("scaler", None), "n_features_in_", len(feats))
+                if expected_n == 22:
+                    from .qam_candidate_features import extract_qam_candidate_features
+                    radial = extract_qam_candidate_features(baseband)
+                    feats = np.concatenate((feats, radial))
+                probs = self.pipeline.predict_proba(feats.reshape(1, -1))[0]
                 classes = list(self.pipeline.classes_)
                 return {cls: float(p) for cls, p in zip(classes, probs)}
             except Exception:
                 pass
 
         pred = rule_based_classify(signal, fs=fs, fc=fc)
-        return {cls: (1.0 if cls == pred else 0.0) for cls in MODULATION_CLASSES}
+        classes_to_use = list(self.pipeline.classes_) if (self.is_fitted and self.pipeline is not None) else MODULATION_CLASSES
+        return {cls: (1.0 if cls == pred else 0.0) for cls in classes_to_use}
 
     def predict_with_confidence(
         self, signal: np.ndarray, fs: float = 1000000.0, fc: float = None
     ) -> dict:
         """Predict modulation with confidence score, class probabilities, and diagnostic cumulants."""
-        cum = compute_cumulants(signal, fs=fs, fc=fc)
-        feats = extract_features(signal, fs=fs, fc=fc)
+        baseband = downconvert_baseband(signal, fs, fc=fc)
+        cum = compute_cumulants(baseband, fs=fs)
+        feats = extract_features(baseband, fs=fs)
+        expected_n = getattr(self.pipeline.named_steps.get("scaler", None), "n_features_in_", len(feats)) if (self.is_fitted and self.pipeline is not None) else len(feats)
+        if expected_n == 22:
+            from .qam_candidate_features import extract_qam_candidate_features
+            radial = extract_qam_candidate_features(baseband)
+            feats = np.concatenate((feats, radial))
 
         if self.is_fitted and self.pipeline is not None:
             try:

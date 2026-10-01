@@ -9,6 +9,7 @@ SOP 1.2 – Explicit Sample-Rate Handling & SignalMetadata
 from __future__ import annotations
 
 import json
+import math
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
@@ -326,6 +327,8 @@ def load_sigmf_meta(meta_path: str | Path) -> dict:
 def load_iq_with_sigmf(
     iq_path: str | Path,
     meta_path: Optional[str | Path] = None,
+    *,
+    fallback_fs: Optional[float] = None,
 ) -> tuple[np.ndarray, SignalMetadata]:
     """Convenience wrapper: load IQ + auto-locate ``.sigmf-meta`` companion.
 
@@ -352,7 +355,10 @@ def load_iq_with_sigmf(
 
     if meta_path is not None:
         sigmf = load_sigmf_meta(meta_path)
-        fs = sigmf["fs"] if sigmf["fs"] > 0 else None
+        candidate_fs = float(sigmf["fs"])
+        if not math.isfinite(candidate_fs) or candidate_fs <= 0:
+            raise ValueError(f"Invalid core:sample_rate in SigMF metadata {meta_path}: {candidate_fs!r}")
+        fs = candidate_fs
         center_freq_hint = sigmf.get("center_freq", 0.0)
 
         _sigmf_dtype_map: dict[str, DTypeLiteral] = {
@@ -362,6 +368,11 @@ def load_iq_with_sigmf(
             "cu8":     "uint8",
         }
         dtype_hint = _sigmf_dtype_map.get(sigmf["dtype"], "auto")  # type: ignore[assignment]
+
+    if fs is None and fallback_fs is not None:
+        if not math.isfinite(float(fallback_fs)) or float(fallback_fs) <= 0:
+            raise ValueError(f"fallback_fs must be finite and positive, got {fallback_fs!r}")
+        fs = float(fallback_fs)
 
     return load_iq(
         iq_path,

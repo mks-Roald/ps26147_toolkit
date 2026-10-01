@@ -21,8 +21,8 @@ async def classify_signal(
         contents = await file.read()
         sig, sample_rate = load_signal_from_bytes(contents, file.filename or "", default_fs=fs)
         
-        clf = classifier.ModulationClassifier()
-        result = clf.predict_with_confidence(sig, fs=sample_rate)
+        from ps26147_toolkit.cnn_runtime import predict_iq_array
+        result = predict_iq_array(sig, sample_rate_hz=sample_rate)
         
         # Format features safely as key-value dict
         raw_feats = result.get("features")

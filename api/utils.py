@@ -20,17 +20,14 @@ def load_signal_from_bytes(
 
     # Check for WAV signature or extension
     if filename.lower().endswith(".wav") or (contents[:4] == b"RIFF" and contents[8:12] == b"WAVE"):
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+            tmp.write(contents)
+            tmp_path = Path(tmp.name)
         try:
-            sr, sig = wavfile.read(io.BytesIO(contents))
-            if sig.ndim > 1:
-                sig = np.mean(sig, axis=1)
-            orig_dtype = sig.dtype
-            sig = sig.astype(np.float32)
-            if np.issubdtype(orig_dtype, np.integer):
-                sig = sig / np.iinfo(orig_dtype).max
-            return sig, float(sr)
-        except Exception:
-            pass
+            sig, meta = load_wav(tmp_path)   # already-fixed preprocess.load_wav()
+            return sig, meta.fs
+        finally:
+            tmp_path.unlink(missing_ok=True)
 
     # Save to temp file to leverage toolkit's robust IQ / SigMF detection
     suffix = Path(filename).suffix if filename else ".iq"

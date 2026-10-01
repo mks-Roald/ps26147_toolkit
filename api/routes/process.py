@@ -24,9 +24,9 @@ def _process_signal_core(contents: bytes, filename: str, sample_rate_hint: float
 
     duration_sec = float(num_samples / sample_rate)
 
-    # 1. Modulation Classification
-    clf = classifier.ModulationClassifier()
-    clf_res = clf.predict_with_confidence(sig, fs=sample_rate)
+    # 1. Modulation Classification (CNN-authoritative with RF fallback)
+    from ps26147_toolkit.cnn_runtime import predict_iq_array
+    clf_res = predict_iq_array(sig, sample_rate_hz=sample_rate)
     mod = clf_res["modulation"]
     conf = float(clf_res["confidence"])
 

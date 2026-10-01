@@ -205,10 +205,14 @@ export default function UploadZone({
       sessionStorage.setItem('lastFileName', file.name);
       sessionStorage.setItem('lastFileSize', String(file.size));
 
-      // Store original file as base64 for later use (sample rate re-processing, FEC decoder)
+      // Store original file as base64 for later use if size allows (sample rate re-processing)
       const reader = new FileReader();
       reader.onloadend = () => {
-        sessionStorage.setItem('lastFileBase64', reader.result?.toString() || '');
+        try {
+          sessionStorage.setItem('lastFileBase64', reader.result?.toString() || '');
+        } catch (storageErr) {
+          console.warn('File size exceeds sessionStorage quota (~5MB); file base64 caching skipped:', storageErr);
+        }
       };
       reader.readAsDataURL(file);
 

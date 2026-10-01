@@ -17,9 +17,9 @@ async def decode_signal(
         contents = await file.read()
         sig, sample_rate = load_signal_from_bytes(contents, file.filename or "", default_fs=fs)
         
-        # 1. Classify modulation
-        clf = classifier.ModulationClassifier()
-        clf_res = clf.predict_with_confidence(sig, fs=sample_rate)
+        # 1. Classify modulation (CNN-authoritative with RF fallback)
+        from ps26147_toolkit.cnn_runtime import predict_iq_array
+        clf_res = predict_iq_array(sig, sample_rate_hz=sample_rate)
         mod = clf_res["modulation"]
         conf = float(clf_res["confidence"])
 

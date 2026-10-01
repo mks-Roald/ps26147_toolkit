@@ -98,7 +98,7 @@ export default function Results() {
       const fileName = sessionStorage.getItem('lastFileName') || 'signal.file';
 
       if (!base64String) {
-        throw new Error('Original file data not found in storage');
+        throw new Error('File was too large for browser storage cache (>5MB). Please re-upload the file with the desired sample rate on the upload page.');
       }
 
       // Decode base64 back to File object
