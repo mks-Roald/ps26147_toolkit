@@ -44,7 +44,7 @@ export default function HomePage() {
               <span>📤 Upload & Process</span>
             </div>
             <h1 className="text-3xl sm:text-4xl font-geist font-weight-600 tracking-tighter text-ink">
-              Satellite Signal Processor
+              Signal Processor
             </h1>
           </div>
         </div>

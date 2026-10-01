@@ -25,6 +25,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Copy application and library source
 COPY ps26147_toolkit /app/ps26147_toolkit
 COPY api /app/api
+COPY model.joblib /app/model.joblib
 
 # Install toolkit in editable/local mode
 RUN pip install --no-cache-dir -e .

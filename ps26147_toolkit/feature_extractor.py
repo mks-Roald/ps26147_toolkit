@@ -183,12 +183,7 @@ def extract_instantaneous_features(signal: np.ndarray, fs: float = 1000000.0) ->
         "fsk_persistence": fsk_persistence,
         "kurtosis_env": kurtosis_env,
         "inst_freq_filtered": inst_freq_filt,
-    }
-# in extract_instantaneous_features(), or as a new standalone feature
 # PAPR (Peak-to-Average Power Ratio) feature
-# Problem 1: 16QAM ↔ 64QAM (17 misclassifications — your single biggest error source)
-# Row 16QAM→64QAM: 8 errors. Row 64QAM→16QAM: 9 errors. This is a classic QAM-order confusion — the only feature currently distinguishing them is c63 (6th-order cumulant) via a single soft threshold. Both classes are unit-energy normalized (/sqrt(10) vs /sqrt(42)), so the main statistical difference is how many amplitude levels each has (4 vs 8 per axis) — and c63 alone isn't separating that cleanly enough, especially at low SNR where cumulant estimates get noisy.
-#Fix — add a PAPR (Peak-to-Average Power Ratio) feature. More amplitude levels → higher peaks relative to average power → PAPR is a much more direct, robust discriminator for QAM order than cumulants alone:
 def compute_papr(signal: np.ndarray) -> float:
     power = np.abs(signal) ** 2
     peak = np.max(power)
@@ -235,7 +230,7 @@ def extract_features(signal: np.ndarray, fs: float = 1000000.0, fc: float = None
     else:
         sig_c = signal
 
-    max_samples = 32768
+    max_samples = 131072
     sig = sig_c[:max_samples] if len(sig_c) > max_samples else sig_c
 
     cum = compute_cumulants(sig, fs=fs, fc=fc)
@@ -246,7 +241,7 @@ def extract_features(signal: np.ndarray, fs: float = 1000000.0, fc: float = None
     s_norm = (sig - np.mean(sig)) / (np.sqrt(np.mean(np.abs(sig - np.mean(sig)) ** 2)) + 1e-12)
     qpsk_metric = float(np.abs(np.mean(s_norm ** 4)) / (np.mean(np.abs(s_norm) ** 4) + 1e-12))
     psk8_metric = float(np.abs(np.mean(s_norm ** 8)) / (np.mean(np.abs(s_norm) ** 8) + 1e-12))
-    papr = compute_papr(sig)  #Peak-to-Average Power Ratio (PAPR) feature
+    papr = compute_papr(sig)  # Peak-to-Average Power Ratio (PAPR) feature
 
     feats = [
         float(np.abs(cum["c20"])),
@@ -264,7 +259,7 @@ def extract_features(signal: np.ndarray, fs: float = 1000000.0, fc: float = None
         float(inst["fsk_persistence"]),
         qpsk_metric,
         psk8_metric,
-        papr
+        papr,
     ]
     return np.nan_to_num(np.array(feats, dtype=np.float32), nan=0.0, posinf=100.0, neginf=-100.0)
 
@@ -288,7 +283,7 @@ def compute_spectrogram(
     noverlap: int = 128,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Return time, frequency, and magnitude spectrogram (in dB)."""
-    max_samples = 500000
+    max_samples = 2000000
     sig_chunk = signal[:max_samples] if len(signal) > max_samples else signal
     is_complex = np.iscomplexobj(sig_chunk)
     f, t, Sxx = spectrogram(

@@ -8,6 +8,10 @@ class ClassifyResponse(BaseModel):
     modulation: str
     confidence: float
     features: Optional[Dict[str, float]] = None
+    center_frequency_hz: Optional[float] = None
+    bandwidth_hz: Optional[float] = None
+    baud_rate: Optional[float] = None
+    snr_db: Optional[float] = None
 
 class ConstellationPoint(BaseModel):
     i: float
@@ -22,6 +26,18 @@ class WaterfallData(BaseModel):
     frequency: List[float]
     power_db: List[List[float]]
 
+class ConstellationMetadata(BaseModel):
+    representation: str
+    symbol_rate: Optional[float] = None
+    timing_recovery_used: bool = False
+    carrier_recovery_used: bool = False
+
+class FskVisualizationData(BaseModel):
+    instantaneous_frequency: List[float]
+    recovered_frequency_states: List[float]
+    symbol_frequency_values: List[float]
+    frequency_state_count: int
+
 class ProcessResponse(BaseModel):
     modulation: str
     confidence: float
@@ -35,13 +51,49 @@ class ProcessResponse(BaseModel):
     duration_sec: float
     sample_rate: float
     waveform_data: List[float]
+    recovered_symbols: Optional[List[ConstellationPoint]] = None
     constellation_data: Optional[List[ConstellationPoint]] = None
+    constellation_metadata: Optional[ConstellationMetadata] = None
+    fsk_visualization_data: Optional[FskVisualizationData] = None
     psd_data: Optional[List[PsdPoint]] = None
     waterfall_data: Optional[WaterfallData] = None
+    session_id: Optional[str] = None
+    pipeline_stages: Dict[str, str] = {}
+    classifier_probabilities: Optional[Dict[str, float]] = None
+    parameter_confidence: Optional[Dict[str, float]] = None
+    timing_quality: Optional[float] = None
+    carrier_quality: Optional[float] = None
+    evm_db: Optional[float] = None
+    demodulated_bits: Optional[List[int]] = None
+    demodulated_bits_count: Optional[int] = None
+    synchronized_bits: Optional[List[int]] = None
+    deinterleaved_bits: Optional[List[int]] = None
+    decoded_bits: Optional[List[int]] = None
+    sync_metadata: Optional[Dict[str, Any]] = None
+    deinterleaver_metadata: Optional[Dict[str, Any]] = None
+    fec_metadata: Optional[Dict[str, Any]] = None
+    fec_decoder_result: Optional[Dict[str, Any]] = None
+    fec_scheme: Optional[str] = None
+    correlate_result: Optional[Dict[str, Any]] = None
+    sync_offset: Optional[int] = None
+    sync_confidence: Optional[float] = None
+    sync_method: Optional[str] = None
+    fec_ran: bool = False
+    decoded_bits_count: int = 0
+    decoded_hex: Optional[str] = None
+    decoded_ascii: Optional[str] = None
+    deinterleaved_bits_count: Optional[int] = None
+    deinterleaver_method: Optional[str] = None
+    demodulation_quality: Optional[Dict[str, Any]] = None
+    errors_corrected: Optional[int] = None
 
 class DecodeResponse(BaseModel):
     modulation: str
     confidence: float
+    center_frequency_hz: Optional[float] = None
+    bandwidth_hz: Optional[float] = None
+    baud_rate: Optional[float] = None
+    snr_db: Optional[float] = None
     num_bits: int
     bit_string_preview: str
     hex_preview: str
@@ -50,6 +102,8 @@ class DecodeResponse(BaseModel):
     fec_scheme: Optional[str] = None
     decoded_bits_count: int
     decoded_bits: List[int]
+    decoded_hex: Optional[str] = None
+    decoded_ascii: Optional[str] = None
     demodulated_bits: Optional[List[int]] = None
     demodulated_bits_count: Optional[int] = None
     deinterleaved_bits: Optional[List[int]] = None
@@ -58,6 +112,15 @@ class DecodeResponse(BaseModel):
     deinterleaver_params: Optional[Dict[str, Any]] = None
     deinterleaver_entropy: Optional[float] = None
     deinterleaver_baseline_entropy: Optional[float] = None
+    # Frame-sync fields (populated after demod, before de-interleave)
+    sync_offset: Optional[int] = None
+    sync_confidence: Optional[float] = None
+    sync_method: Optional[str] = None
+    synchronized_bits: Optional[List[int]] = None
+    fec_decoder_result: Optional[Dict[str, Any]] = None
+    errors_corrected: Optional[int] = None
+    demodulation_quality: Optional[Dict[str, Any]] = None
+    fec_ran: bool = False
 
 class CorrelatedFrame(BaseModel):
     start_bit: int

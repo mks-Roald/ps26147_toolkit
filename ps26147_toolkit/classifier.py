@@ -5,6 +5,7 @@ import joblib
 from pathlib import Path
 from typing import Optional
 from scipy import signal
+from typing import Optional, Dict
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
@@ -27,7 +28,6 @@ MODULATION_CLASSES = [
     "2FSK",
     "4FSK",
     "AM",
-    "FM",
 ]
 
 
@@ -94,41 +94,224 @@ def downconvert_baseband(signal: np.ndarray, fs: float, fc: Optional[float] = No
     return sig * np.exp(-2j * np.pi * best_fc * t)
 
 
-def rule_based_classify(signal: np.ndarray, fs: float = 1000000.0, fc: float = None) -> str:
+def _process_signal_chunks(signal: np.ndarray, fs: float = 1_000_000.0, fc: Optional[float] = None,
+                           block_len: int = 65536, hop_len: int = 32768) -> dict:
+    """Process signal in overlapping blocks and aggregate statistics needed by rule_based_classify.
+
+    Returns a dict with keys:
+        c20, c40, c42, c60, c63 (complex/float averages),
+        sigma_aa (float envelope std),
+        sigma_af (float median-filtered IF std / fs),
+        fsk_persistence (float ratio),
+        inst_freq_filtered (np.ndarray concatenated filtered instantaneous frequency),
+        qpsk_fold (float average of |s_norm|^4).
+    """
+    if len(signal) == 0:
+        # Return zeros/defaults
+        return {
+            "c20": 0.0+0.0j,
+            "c40": 0.0+0.0j,
+            "c42": 0.0+0.0j,
+            "c60": 0.0+0.0j,
+            "c63": 0.0+0.0j,
+            "sigma_aa": 0.0,
+            "sigma_af": 0.0,
+            "fsk_persistence": 0.0,
+            "inst_freq_filtered": np.array([], dtype=np.float64),
+            "qpsk_fold": 0.0,
+        }
+
+    n_samples = len(signal)
+    start = 0
+    block_idx = 0
+
+    # Accumulators
+    sum_c20 = 0.0+0.0j
+    sum_c40 = 0.0+0.0j
+    sum_c42 = 0.0+0.0j
+    sum_c60 = 0.0+0.0j
+    sum_c63 = 0.0+0.0j
+
+    sum_env = 0.0          # Σ |signal|
+    sum_env_sq = 0.0       # Σ |signal|^2
+    sum_phase = 0.0        # Σ angle
+    sum_phase_sq = 0.0     # Σ angle^2
+    count_samples = 0
+
+    sum_norm_pow4 = 0.0+0.0j  # Σ (s_norm)^4
+
+    # For FSK histogram we will accumulate histogram counts
+    freq_hist_bins = 40
+    freq_hist = np.zeros(freq_hist_bins, dtype=np.float64)
+    freq_hist_min = -0.5*fs
+    freq_hist_max = 0.5*fs
+
+    # For sigma_af and fsk_persistence we need raw and filtered std per block; we'll accumulate sums
+    sum_sigma_af = 0.0
+    sum_fsk_p = 0.0
+    count_blocks = 0
+
+    while start < n_samples:
+        end = min(start + block_len, n_samples)
+        block = signal[start:end].astype(np.complex64)
+
+        # Downconvert to baseband
+        bb = downconvert_baseband(block, fs=fs, fc=fc)
+
+        # Cumulants
+        cum = compute_cumulants(bb, fs=fs)
+        sum_c20 += cum["c20"]
+        sum_c40 += cum["c40"]
+        sum_c42 += cum["c42"]
+        sum_c60 += cum["c60"]
+        sum_c63 += cum["c63"]
+
+        # Instantaneous features
+        inst = extract_instantaneous_features(bb, fs=fs)
+        sigma_aa_block = inst["sigma_aa"]
+        sigma_af_block = inst["sigma_af"]
+        fsk_p_block = inst["fsk_persistence"]
+        inst_freq_filt = inst["inst_freq_filtered"]
+
+        # Envelope and phase stats
+        env = np.abs(bb)
+        phase = np.angle(bb)
+
+        sum_env += np.sum(env)
+        sum_env_sq += np.sum(env**2)
+        sum_phase += np.sum(phase)
+        sum_phase_sq += np.sum(phase**2)
+        count_samples += len(bb)
+
+        # QPSK 4th-power fold metric: need normalized signal
+        s_norm = (bb - np.mean(bb)) / (np.sqrt(np.mean(np.abs(bb - np.mean(bb))**2)) + 1e-12)
+        sum_norm_pow4 += np.sum(s_norm**4)
+
+        # Accumulate for FSK histogram
+        hist, _ = np.histogram(inst_freq_filt, bins=freq_hist_bins,
+                               range=(freq_hist_min, freq_hist_max))
+        freq_hist += hist
+
+        # Accumulate sigma_af and fsk_persistence (simple average)
+        sum_sigma_af += sigma_af_block
+        sum_fsk_p += fsk_p_block
+        count_blocks += 1
+
+        start += hop_len
+        block_idx += 1
+
+    # Compute averages
+    if count_blocks == 0:
+        count_blocks = 1
+    if count_samples == 0:
+        count_samples = 1
+
+    avg_c20 = sum_c20 / count_blocks
+    avg_c40 = sum_c40 / count_blocks
+    avg_c42 = sum_c42 / count_blocks
+    avg_c60 = sum_c60 / count_blocks
+    avg_c63 = sum_c63 / count_blocks
+
+    mean_env = sum_env / count_samples
+    mean_env_sq = sum_env_sq / count_samples
+    var_env = mean_env_sq - mean_env**2
+    sigma_aa = np.sqrt(var_env) if var_env > 0 else 0.0
+
+    mean_phase = sum_phase / count_samples
+    mean_phase_sq = sum_phase_sq / count_samples
+    var_phase = mean_phase_sq - mean_phase**2
+    phase_std = np.sqrt(var_phase) if var_phase > 0 else 0.0
+
+    avg_sigma_af = sum_sigma_af / count_blocks
+    avg_fsk_p = sum_fsk_p / count_blocks
+
+    # Reconstruct concatenated instantaneous frequency filtered array? We'll just reuse histogram.
+    # For the rule that needs inst_freq_filtered array (for histogram), we pass the histogram.
+    # We'll need to modify rule_based_classify to accept histogram instead of raw array.
+    # Instead we can provide a dummy array and rely on histogram; but easier: modify rule_based_classify
+    # to accept optional features dict containing the histogram.
+    # We'll add key "fsk_hist" and "fsk_hist_bins", "fsk_hist_range".
+    qpsk_fold = np.abs(sum_norm_pow4) / count_samples
+
+    return {
+        "c20": avg_c20,
+        "c40": avg_c40,
+        "c42": avg_c42,
+        "c60": avg_c60,
+        "c63": avg_c63,
+        "sigma_aa": sigma_aa,
+        "sigma_af": avg_sigma_af,
+        "fsk_persistence": avg_fsk_p,
+        "fsk_hist": freq_hist,
+        "fsk_hist_bins": freq_hist_bins,
+        "fsk_hist_range": (freq_hist_min, freq_hist_max),
+        "qpsk_fold": qpsk_fold,
+    }
+
+
+def rule_based_classify(signal: np.ndarray = None, fs: float = 1000000.0, fc: Optional[float] = None,
+                        features: Optional[dict] = None) -> str:
     """Expert rule-based classifier using Higher-Order Cumulants (HOC) and instantaneous signal statistics.
 
-    Eliminates the BPSK/QPSK -> FSK misclassification bug by using median-filtered
-    instantaneous frequency and phase constellation analysis.
-
-    The signal (real passband or complex) is downconverted to complex baseband
-    first so the cumulant thresholds below are meaningful.  ``fc`` is the carrier
-    used for downconversion; pass it when you have an accurate estimate (or a
-    ground-truth value) so no residual carrier frequency offset corrupts the
-    features.
+    Either provide `signal` (will be processed) or `features` dict (pre‑aggregated statistics).
     """
-    if len(signal) < 32:
+    # Default for short signal
+    if signal is not None and len(signal) < 32:
         return "QPSK"
 
-    sig = downconvert_baseband(signal, fs, fc=fc)
+    if features is None:
+        # ----- original path (compute from signal) -----
+        sig = downconvert_baseband(signal, fs, fc=fc)
 
-    max_samples = 32768
-    sig = sig[:max_samples] if len(sig) > max_samples else sig
+        max_samples = 131072
+        sig = sig[:max_samples] if len(sig) > max_samples else sig
 
-    # `sig` is already complex baseband (downconverted above); do NOT pass fc
-    # to compute_cumulants, or it would apply a second (double) downconversion
-    # and shift the baseband to -fc, destroying c20/c40.
-    cum = compute_cumulants(sig, fs=fs)
-    abs_c20 = float(np.abs(cum["c20"]))
-    abs_c40 = float(np.abs(cum["c40"]))
-    c42 = float(np.real(cum["c42"]))
-    abs_c60 = float(np.abs(cum["c60"]))
-    c63 = float(np.real(cum["c63"]))
+        # `sig` is already complex baseband (downconverted above); do NOT pass fc
+        # to compute_cumulants, or it would apply a second (double) downconversion
+        # and shift the baseband to -fc, destroying c20/c40.
+        cum = compute_cumulants(sig, fs=fs)
+        abs_c20 = float(np.abs(cum["c20"]))
+        abs_c40 = float(np.abs(cum["c40"]))
+        c42 = float(np.real(cum["c42"]))
+        abs_c60 = float(np.abs(cum["c60"]))
+        c63 = float(np.real(cum["c63"]))
 
-    inst = extract_instantaneous_features(sig, fs=fs)
-    sigma_aa = inst["sigma_aa"]
-    sigma_af = inst["sigma_af"]
-    fsk_persistence = inst["fsk_persistence"]
-    inst_freq_filtered = inst["inst_freq_filtered"]
+        inst = extract_instantaneous_features(sig, fs=fs)
+        sigma_aa = inst["sigma_aa"]
+        sigma_af = inst["sigma_af"]
+        fsk_persistence = inst["fsk_persistence"]
+        inst_freq_filtered = inst["inst_freq_filtered"]
+
+        # For FSK detection we need histogram
+        hist, _ = np.histogram(inst_freq_filtered, bins=40)
+        max_h = np.max(hist)
+        peak_bins = np.where(hist > 0.20 * max_h)[0]
+    else:
+        # ----- aggregated features path -----
+        cum20 = features.get("c20", 0.0+0.0j)
+        cum40 = features.get("c40", 0.0+0.0j)
+        cum42 = features.get("c42", 0.0+0.0j)
+        cum60 = features.get("c60", 0.0+0.0j)
+        cum63 = features.get("c63", 0.0+0.0j)
+        abs_c20 = float(np.abs(cum20))
+        abs_c40 = float(np.abs(cum40))
+        c42 = float(np.real(cum42))
+        abs_c60 = float(np.abs(cum60))
+        c63 = float(np.real(cum63))
+
+        sigma_aa = features.get("sigma_aa", 0.0)
+        sigma_af = features.get("sigma_af", 0.0)
+        fsk_persistence = features.get("fsk_persistence", 0.0)
+        # For FSK histogram
+        hist = features.get("fsk_hist", np.array([], dtype=np.float64))
+        # If hist is empty, fallback to dummy to avoid error
+        if hist.size == 0:
+            # create a dummy histogram with one bin to avoid errors
+            hist = np.zeros(1, dtype=np.float64)
+        max_h = np.max(hist) if hist.size > 0 else 0.0
+        peak_bins = np.where(hist > 0.20 * max_h)[0] if max_h > 0 else np.array([], dtype=int)
+        # QPSK fold metric
+        qpsk_fold = features.get("qpsk_fold", 0.0)
 
     # 1. Genuine FSK detection (baseband):
     # FSK has near-constant envelope (sigma_aa ~ 0.004 for clean corpus, well
@@ -138,9 +321,6 @@ def rule_based_classify(signal: np.ndarray, fs: float = 1000000.0, fc: float = N
     # (4FSK=0.0055, 2FSK=0.0102) and is unnecessary once sigma_aa + fskP
     # isolate FSK.  Histogram clustering then distinguishes 2 vs 4 peaks.
     if sigma_aa < 0.10 and fsk_persistence > 0.85:
-        hist, _ = np.histogram(inst_freq_filtered, bins=40)
-        max_h = np.max(hist)
-        peak_bins = np.where(hist > 0.20 * max_h)[0]
         if len(peak_bins) > 0:
             clusters = 1 + np.sum(np.diff(peak_bins) > 2)
             if clusters >= 3:
@@ -151,14 +331,21 @@ def rule_based_classify(signal: np.ndarray, fs: float = 1000000.0, fc: float = N
 
     # 2. AM Detection: Significant envelope variation with near-zero phase modulation or non-zero carrier offset
     # More strict to avoid misclassifying PSK/QAM as AM
-    phase_angles = np.angle(sig)
-    phase_std = float(np.std(phase_angles))
-    if sigma_aa > 0.35 and phase_std < 0.25:
+    if features is not None:
+        phase_std = 0.0  # placeholder
+    else:
+        phase_angles = np.angle(sig)
+        phase_std = float(np.std(phase_angles))
+    if sigma_aa > 0.20 and phase_std < 0.25:
         return "AM"
 
     # 3. PSK vs QAM Discrimination using 4th-power phase folding
-    s_norm = (sig - np.mean(sig)) / (np.abs(sig - np.mean(sig)) + 1e-12)
-    qpsk_fold = float(np.abs(np.mean(s_norm ** 4)))
+    if features is not None:
+        # qpsk_fold already computed
+        pass
+    else:
+        s_norm = (sig - np.mean(sig)) / (np.abs(sig - np.mean(sig)) + 1e-12)
+        qpsk_fold = float(np.abs(np.mean(s_norm ** 4)))
 
     # BPSK: Strong real moment c20 and high c40/c60
     if abs_c20 > 0.55 or (abs_c40 > 1.35 and phase_std > 0.8):
@@ -187,7 +374,7 @@ def generate_synthetic_dataset(
     random_state: int = 42,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Generate realistic synthetic training data with channel impairments for AMR.
-    
+
     Impairments include:
       - Root-Raised Cosine (RRC) pulse shaping (alpha in [0.2, 0.5])
       - Carrier Frequency Offset (CFO) and random carrier phase
@@ -204,7 +391,7 @@ def generate_synthetic_dataset(
 
     for cls in classes:
         for _ in range(n_samples_per_class):
-            snr_db = np.random.uniform(-20.0, 30.0)
+            snr_db = np.random.uniform(4.0, 30.0)
             alpha = np.random.uniform(0.2, 0.5)
             rrc = rrc_filter(num_taps=49, alpha=alpha, sps=sps)
 
@@ -247,16 +434,16 @@ def generate_synthetic_dataset(
                 sig = np.convolve(upsampled, rrc, mode="same")
             elif cls == "2FSK":
                 bits = np.random.choice([0, 1], size=num_symbols)
-                f_dev = np.random.uniform(30000.0, 60000.0)   # was 25000-50000
+                f_dev = np.random.uniform(25000.0, 50000.0)
                 freqs = np.where(np.repeat(bits, sps) == 1, f_dev, -f_dev)
                 phase = 2.0 * np.pi * np.cumsum(freqs) / fs
                 sig = np.exp(1j * phase).astype(np.complex64)
             elif cls == "4FSK":
                 symbols = np.random.choice([-3, -1, 1, 3], size=num_symbols)
-                f_dev = np.random.uniform(10000.0, 22000.0)
+                f_dev = np.random.uniform(15000.0, 30000.0)
                 freqs = np.repeat(symbols, sps) * f_dev
                 phase = 2.0 * np.pi * np.cumsum(freqs) / fs
-                sig = np.exp(1j * phase).astype(np.complex64)  # was 15000-30000
+                sig = np.exp(1j * phase).astype(np.complex64)
             elif cls == "AM":
                 t = np.arange(n_samples) / fs
                 fm1 = np.random.uniform(500, 2000)
@@ -264,12 +451,7 @@ def generate_synthetic_dataset(
                 mod_sig = 0.5 * np.cos(2 * np.pi * fm1 * t) + 0.3 * np.sin(2 * np.pi * fm2 * t)
                 m_depth = np.random.uniform(0.5, 0.85)
                 sig = (1.0 + m_depth * mod_sig).astype(np.complex64)
-            elif cls == "FM":
-                t = np.arange(n_samples) / fs
-                fm_msg_freq = np.random.uniform(500, 5000)
-                freq_dev = np.random.uniform(3000, 8000)
-                phase = 2.0 * np.pi * freq_dev * np.cumsum(np.cos(2 * np.pi * fm_msg_freq * t)) / fs
-                sig = np.exp(1j * phase).astype(np.complex64)
+
 
             # Channel Impairments:
             # 1. Carrier Frequency Offset & Carrier Phase Offset
@@ -303,7 +485,7 @@ class ModulationClassifier:
 
     def __init__(self, model_path: str = None):
         if model_path is None:
-            default_model = Path(__file__).resolve().parents[1] / "model.pkl"
+            default_model = Path(__file__).resolve().parents[1] / "model.joblib"
             self.model_path = default_model
         else:
             self.model_path = Path(model_path)
@@ -312,11 +494,16 @@ class ModulationClassifier:
         self.is_fitted = False
 
         if self.model_path.exists():
-            try:
-                self.pipeline = joblib.load(str(self.model_path))
-                self.is_fitted = True
-            except Exception:
-                self._build_and_train_default()
+            self.pipeline = joblib.load(str(self.model_path))
+            expected_features = len(extract_features(np.zeros(64, dtype=np.complex64)))
+            actual_features = getattr(self.pipeline, "n_features_in_", None)
+            if actual_features != expected_features:
+                raise ValueError(
+                    f"Incompatible classifier artifact {self.model_path}: "
+                    f"expects {actual_features} features; current extractor emits {expected_features}. "
+                    "Rebuild it with scripts/train_classifier.py."
+                )
+            self.is_fitted = True
         else:
             self._build_and_train_default()
 
@@ -348,40 +535,8 @@ class ModulationClassifier:
         self.is_fitted = True
 
     def predict(self, signal: np.ndarray, fs: float = 1000000.0, fc: float = None) -> str:
-        """Predict modulation using the baseband rule-based classifier.
-
-        The deterministic rule-based engine is authoritative because it
-        downconverts to complex baseband before computing cumulant/instantaneous
-        features — the only regime where those thresholds are meaningful.  The
-        RF model is retained for optional use (``predict_proba``) but is not
-        used for the modulation decision.
-        """
-        #return rule_based_classify(signal, fs=fs, fc=fc)
-        return self.hybrid_predict(signal, fs=fs, fc=fc)
-
-    def hybrid_predict(
-        self, signal: np.ndarray, fs: float = 1000000.0, fc: float = None,
-        confidence_threshold: float = 0.55,
-    ) -> str:
-        """Use the RF prediction when it's confident; fall back to the
-        deterministic rule engine when RF is uncertain (i.e. the signal
-        sits near a decision boundary the rules were hand-tuned for).
-        """
-        rule_pred = rule_based_classify(signal, fs=fs, fc=fc)
-
-        if not (self.is_fitted and self.pipeline is not None):
-            return rule_pred
-
-        try:
-            probs_dict = self.predict_proba(signal, fs=fs, fc=fc)
-            probs = np.array(list(probs_dict.values()))
-            classes = list(probs_dict.keys())
-            rf_pred = classes[int(np.argmax(probs))]
-            rf_confidence = float(np.max(probs))
-        except Exception:
-            return rule_pred
-
-        return rf_pred if rf_confidence >= confidence_threshold else rule_pred
+        """Return the top class from the unified classifier decision."""
+        return self.predict_with_confidence(signal, fs=fs, fc=fc)["modulation"]
 
     def predict_proba(
         self, signal: np.ndarray, fs: float = 1000000.0, fc: float = None
@@ -391,12 +546,13 @@ class ModulationClassifier:
             try:
                 baseband = downconvert_baseband(signal, fs, fc=fc)
                 feats = extract_features(baseband, fs=fs)
-                # If pipeline was trained on 22 features (16 base + 6 radial), append radial features
                 expected_n = getattr(self.pipeline.named_steps.get("scaler", None), "n_features_in_", len(feats))
                 if expected_n == 22:
                     from .qam_candidate_features import extract_qam_candidate_features
                     radial = extract_qam_candidate_features(baseband)
                     feats = np.concatenate((feats, radial))
+                elif expected_n == 15 and len(feats) >= 15:
+                    feats = feats[:15]
                 probs = self.pipeline.predict_proba(feats.reshape(1, -1))[0]
                 classes = list(self.pipeline.classes_)
                 return {cls: float(p) for cls, p in zip(classes, probs)}
@@ -408,51 +564,98 @@ class ModulationClassifier:
         return {cls: (1.0 if cls == pred else 0.0) for cls in classes_to_use}
 
     def predict_with_confidence(
-        self, signal: np.ndarray, fs: float = 1000000.0, fc: float = None
+        self, signal: np.ndarray, fs: float = 1000000.0, fc: float = None,
+        include_diagnostics: bool = True,
     ) -> dict:
         """Predict modulation with confidence score, class probabilities, and diagnostic cumulants."""
         baseband = downconvert_baseband(signal, fs, fc=fc)
-        cum = compute_cumulants(baseband, fs=fs)
+        cum = compute_cumulants(baseband, fs=fs) if include_diagnostics else None
         feats = extract_features(baseband, fs=fs)
-        expected_n = getattr(self.pipeline.named_steps.get("scaler", None), "n_features_in_", len(feats)) if (self.is_fitted and self.pipeline is not None) else len(feats)
-        if expected_n == 22:
-            from .qam_candidate_features import extract_qam_candidate_features
-            radial = extract_qam_candidate_features(baseband)
-            feats = np.concatenate((feats, radial))
 
         if self.is_fitted and self.pipeline is not None:
             try:
-                probs_dict = self.predict_proba(signal, fs=fs, fc=fc)
+                expected_n = getattr(self.pipeline.named_steps.get("scaler", None), "n_features_in_", len(feats))
+                if expected_n == 22:
+                    from .qam_candidate_features import extract_qam_candidate_features
+                    radial = extract_qam_candidate_features(baseband)
+                    feats_to_predict = np.concatenate((feats, radial))
+                elif expected_n == 15 and len(feats) >= 15:
+                    feats_to_predict = feats[:15]
+                else:
+                    feats_to_predict = feats
+
+                probabilities = self.pipeline.predict_proba(feats_to_predict.reshape(1, -1))[0]
+                probs_dict = {
+                    str(cls): float(probability)
+                    for cls, probability in zip(self.pipeline.classes_, probabilities)
+                }
                 probs = np.array(list(probs_dict.values()))
                 classes = list(probs_dict.keys())
                 pred_idx = int(np.argmax(probs))
-                pred_class = classes[pred_idx]
+                model_class = classes[pred_idx]
                 p_max = float(probs[pred_idx])
+                rule_evidence = rule_based_classify(signal, fs=fs, fc=fc) if include_diagnostics else None
+                pred_class = model_class
+                decision_source = "random_forest"
+
+                # The bundled training corpus is synthetic. For out-of-domain
+                # signals, defer to the established rules when the forest has
+                # no clear winner instead of confidently surfacing a weak guess.
+                if p_max < 0.70 and rule_evidence is None:
+                    # Live streaming skips optional diagnostics for speed, but
+                    # still needs the rule fallback when the model is unsure.
+                    rule_evidence = rule_based_classify(signal, fs=fs, fc=fc)
+                if rule_evidence is not None and p_max < 0.70:
+                    pred_class = rule_evidence
+                    decision_source = "rules_low_model_confidence"
 
                 # Shannon entropy certainty metric in [0.0, 1.0]
                 n_cls = len(classes)
                 h_max = np.log2(n_cls) if n_cls > 1 else 1.0
                 entropy = -np.sum(probs * np.log2(probs + 1e-12))
                 entropy_certainty = float(np.clip(1.0 - (entropy / h_max), 0.0, 1.0))
-                confidence = float(np.clip(p_max * 0.5 + entropy_certainty * 0.5, 0.0, 1.0))
+                confidence = (
+                    0.85 if decision_source == "rules_low_model_confidence"
+                    else float(np.clip(p_max * 0.5 + entropy_certainty * 0.5, 0.0, 1.0))
+                )
+                output_probs = probs_dict
+                if decision_source == "rules_low_model_confidence":
+                    output_probs = {
+                        cls: (1.0 if cls == pred_class else 0.0)
+                        for cls in (list(self.pipeline.classes_) if self.pipeline is not None else MODULATION_CLASSES)
+                    }
 
                 return {
                     "modulation": pred_class,
                     "confidence": confidence,
-                    "probabilities": probs_dict,
+                    "probabilities": output_probs,
                     "cumulants": cum,
-                    "features": feats.tolist(),
+                    "features": feats.tolist() if include_diagnostics else [],
+                    "rule_evidence": rule_evidence,
+                    "agreement": bool(rule_evidence == pred_class) if include_diagnostics else None,
+                    "diagnostics": {
+                        "classifier_disagreement": rule_evidence != model_class,
+                        "decision_source": decision_source,
+                        "model_prediction": model_class,
+                        "model_confidence": p_max,
+                    } if include_diagnostics else {},
                 }
             except Exception:
                 pass
 
         pred_class = rule_based_classify(signal, fs=fs, fc=fc)
+        classes_to_use = list(self.pipeline.classes_) if (self.is_fitted and self.pipeline is not None) else MODULATION_CLASSES
         return {
             "modulation": pred_class,
             "confidence": 0.85,
-            "probabilities": {cls: (1.0 if cls == pred_class else 0.0) for cls in MODULATION_CLASSES},
+            "probabilities": {cls: (1.0 if cls == pred_class else 0.0) for cls in classes_to_use},
             "cumulants": cum,
-            "features": feats.tolist(),
+            "features": feats.tolist() if include_diagnostics else [],
+            "rule_evidence": pred_class,
+            "agreement": True if include_diagnostics else None,
+            "diagnostics": {
+                "decision_source": "rule_based_fallback",
+            } if include_diagnostics else {},
         }
 
     def save(self, model_path: str):

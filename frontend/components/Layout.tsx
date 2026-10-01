@@ -29,7 +29,7 @@ export default function Layout({ children }: LayoutProps) {
 
   const navLinks = [
     { href: '/', label: 'Upload & Process' },
-    { href: '/live', label: '🔴 Live SDR Stream' },
+    { href: '/live', label: '🔴 Live SDR Sim' },
     { href: '/results', label: 'Dashboard Results' },
     { href: '/about', label: 'About & Toolkit' },
   ];
@@ -44,11 +44,11 @@ export default function Layout({ children }: LayoutProps) {
       >
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            <div className="w-9 h-9 rounded-lg bg-gradient-to-tr from-cyan-500 via-blue-600 to-fuchsia-500 flex items-center justify-center font-bold text-white shadow-lg shadow-cyan-500/20">
-              ⚡
+            <div className="w-9 h-9 rounded-lg flex items-center justify-center overflow-hidden">
+              <img src="/icons/icon.svg" alt="SIGextract Logo" className="w-full h-full object-contain" />
             </div>
             <div>
-              <Link href="/" className="font-extrabold text-lg tracking-tighter bg-gradient-to-r from-cyan-400 via-blue-300 to-fuchsia-400 bg-clip-text text-transparent">
+              <Link href="/" className="font-extrabold text-lg tracking-tighter bg-gradient-to-r from-[#00E5FF] via-[#3B82F6] to-[#6366F1] bg-clip-text text-transparent">
                 SIGextract
               </Link>
               <span className="hidden sm:inline-block ml-2 text-xs font-geist-mono font-weight-500 text-ink-faint border border-hairline/60 rounded px-2 py-0.5">
@@ -83,6 +83,24 @@ export default function Layout({ children }: LayoutProps) {
             <ThemeToggle />
           </div>
         </div>
+        <nav aria-label="Mobile navigation" className="md:hidden max-w-7xl mx-auto mt-3 flex gap-2 overflow-x-auto pb-1">
+          {navLinks.map((link) => {
+            const active = pathname === link.href;
+            return (
+              <Link
+                key={`mobile-${link.href}`}
+                href={link.href}
+                aria-current={active ? 'page' : undefined}
+                className={`shrink-0 rounded-md border px-3 py-2 text-xs font-geist-mono transition-colors ${active
+                  ? 'border-cyan-400/60 bg-cyan-500/10 text-cyan-400'
+                  : 'border-hairline text-ink-muted hover:text-ink'
+                }`}
+              >
+                {link.label}
+              </Link>
+            );
+          })}
+        </nav>
       </header>
 
       {/* Main Content Area */}

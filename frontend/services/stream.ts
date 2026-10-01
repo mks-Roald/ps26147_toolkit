@@ -5,6 +5,15 @@ export interface SDRFrame {
   configured_modulation: string;
   detected_modulation: string;
   confidence: number;
+  classification_correct: boolean;
+  configured_baud: number;
+  estimated_baud: number;
+  configured_snr: number;
+  estimated_snr: number | null;
+  configured_cfo: number;
+  estimated_cfo: number | null;
+  visualization: 'constellation' | 'frequency';
+  frequency_states: Array<{ sample: number; frequency: number }>;
   snr_db: number;
   baud_rate: number;
   sample_rate: number;

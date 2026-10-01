@@ -16,9 +16,14 @@ import {
   AreaChart,
   Area,
 } from 'recharts';
-import { ProcessResult, processFile, DecodeResult, CorrelateResult, decodeSignal, correlateSignal } from '@/services/api';
+import { ProcessResult, createAnalysisSession } from '@/services/api';
+
+interface ExtendedProcessResult extends ProcessResult {
+  fec_scheme: string;
+}
 import Card from '@/components/base/Card';
 import WaterfallPlot from '@/components/WaterfallPlot';
+import { clearSignalSession, loadSignalFile, loadSignalResult, saveSignalResult, readSignalSession, writeSignalSession } from '@/services/signalStorage';
 
 export default function Results() {
   const router = useRouter();
@@ -28,59 +33,17 @@ export default function Results() {
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'waveform' | 'psd' | 'constellation' | 'spectrogram' | 'waterfall'>('waveform');
   const [editingSampleRate, setEditingSampleRate] = useState<boolean>(false);
+  const [fecScheme, setFecScheme] = useState<string>('none');
+  const [editingFecScheme, setEditingFecScheme] = useState<boolean>(false);
 
-  // Fetch full analysis including decode and correlate results
-  const fetchFullAnalysis = async (file: File, sampleRate: number): Promise<ProcessResult> => {
-    try {
-      // Step 1: Process file to get base results
-      const processRes = await processFile(file, sampleRate);
-
-      // Step 2: Fetch decode results (using default fecScheme "")
-      const decodeRes = await decodeSignal(file, "", sampleRate);
-
-      // Step 3: Fetch correlate results
-      const correlateRes = await correlateSignal(file, { sampleRate });
-
-      // Merge all results
-      return {
-        ...processRes,
-        demodulated_bits: decodeRes.demodulated_bits,
-        demodulated_bits_count: decodeRes.demodulated_bits_count,
-        deinterleaved_bits: decodeRes.deinterleaved_bits,
-        deinterleaved_bits_count: decodeRes.deinterleaved_bits_count,
-        decoded_bits: decodeRes.decoded_bits,
-        correlate_result: correlateRes,
-      };
-    } catch (err) {
-      throw err;
-    }
+  const leaveAnalysis = async () => {
+    const session = readSignalSession();
+    if (session) await clearSignalSession(session.signalSessionId);
+    sessionStorage.removeItem('signalSession');
   };
 
-  // Helper to decode base64 string back to File object
-  const base64ToFile = (base64String: string, fileName: string): File | null => {
-    try {
-      // Remove data URL prefix if present
-      const base64Data = base64String.split(',')[1] || base64String;
-      const binaryString = window.atob(base64Data);
-      const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-      }
-      // Determine MIME type from file extension
-      const ext = fileName.split('.').pop()?.toLowerCase() || '';
-      const mimeTypes: Record<string, string> = {
-        wav: 'audio/wav',
-        iq: 'application/octet-stream',
-        bin: 'application/octet-stream',
-        raw: 'application/octet-stream',
-        'sigmf-data': 'application/octet-stream'
-      };
-      const mimeType = mimeTypes[ext] || 'application/octet-stream';
-      return new File([bytes], fileName, { type: mimeType });
-    } catch (error) {
-      console.error('Failed to decode base64 to File:', error);
-      return null;
-    }
+  const fetchFullAnalysis = async (file: File, sampleRate: number, fecScheme: string = "none"): Promise<ProcessResult> => {
+    return createAnalysisSession(file, sampleRate, { fecScheme, syncWord: data?.sync_metadata?.word || 'Barker-13', autoDetectSync: false, autoDeinterleave: fecScheme.toLowerCase() === 'viterbi' });
   };
 
   // Handle sample rate changes with file re-processing
@@ -93,29 +56,20 @@ export default function Results() {
     setLoading(true);
 
     try {
-      // Retrieve the original file from sessionStorage
-      const base64String = sessionStorage.getItem('lastFileBase64');
-      const fileName = sessionStorage.getItem('lastFileName') || 'signal.file';
-
-      if (!base64String) {
-        throw new Error('File was too large for browser storage cache (>5MB). Please re-upload the file with the desired sample rate on the upload page.');
-      }
-
-      // Decode base64 back to File object
-      const originalFile = base64ToFile(base64String, fileName);
+      const session = readSignalSession();
+      if (!session) throw new Error('Signal session information is unavailable.');
+      const originalFile = await loadSignalFile(session.signalSessionId, session.filename);
       if (!originalFile) {
-        throw new Error('Failed to reconstruct file from stored data');
+        throw new Error('Original signal file is unavailable in IndexedDB.');
       }
 
       // Re-process with new sample rate (including decode and correlate)
-      const res = await fetchFullAnalysis(originalFile, newSampleRate);
+      const res = await fetchFullAnalysis(originalFile, newSampleRate, fecScheme);
 
-      // Update data and session storage
+      // Update the cached result in IndexedDB and keep only metadata in sessionStorage.
       setData(res);
-      sessionStorage.setItem('lastResult', JSON.stringify(res));
-      sessionStorage.setItem('lastFileName', fileName);
-      sessionStorage.setItem('lastFileSize', String(originalFile.size));
-      sessionStorage.setItem('lastSampleRate', String(newSampleRate));
+      await saveSignalResult(session.signalSessionId, res);
+      writeSignalSession({ ...session, sampleRate: newSampleRate, resultStatus: 'ready' });
 
     } catch (err: any) {
       setError(err.message || 'Failed to re-process signal with new sample rate');
@@ -126,33 +80,22 @@ export default function Results() {
   };
 
   useEffect(() => {
-    const stored = sessionStorage.getItem('lastResult');
-    const storedName = sessionStorage.getItem('lastFileName') || 'Signal File';
-    if (stored) {
+    let active = true;
+    (async () => {
+      const session = readSignalSession();
+      if (!session) { router.push('/'); return; }
       try {
-        setData(JSON.parse(stored));
-        setFileName(storedName);
-      } catch {
-        // Failed to parse
-      }
-      setLoading(false);
-    } else {
-      router.push('/');
-    }
+        const storedResult = await loadSignalResult<ProcessResult>(session.signalSessionId);
+        if (!active || !storedResult) { if (active) router.push('/'); return; }
+        setData(storedResult);
+        setFileName(session.filename || 'Signal File');
+        setFecScheme((storedResult as ExtendedProcessResult).fec_scheme || '');
+      } catch (err: any) {
+        if (active) setError(err.message || 'Unable to load analysis from IndexedDB.');
+      } finally { if (active) setLoading(false); }
+    })();
+    return () => { active = false; };
   }, [router]);
-
-  // Handle sample rate changes from session storage
-  useEffect(() => {
-    const storedSampleRate = sessionStorage.getItem('lastSampleRate');
-    if (storedSampleRate) {
-      const parsed = parseInt(storedSampleRate, 10);
-      if (!isNaN(parsed) && parsed > 0) {
-        setData(prev => prev ? { ...prev, sample_rate: parsed } : null);
-        // Clear the stored value to avoid re-applying on every render
-        sessionStorage.removeItem('lastSampleRate');
-      }
-    }
-  }, []);
 
   if (loading) {
     return (
@@ -176,7 +119,47 @@ export default function Results() {
 
   const waveformData = data.waveform_data ? data.waveform_data.map((v, i) => ({ x: i, y: v })) : [];
   const psdData = data.psd_data ? data.psd_data.map((p) => ({ freq: Math.round(p.freq), psd: Number(p.psd.toFixed(2)) })) : [];
-  const constellationData = data.constellation_data ? data.constellation_data.map((pt) => ({ i: Number(pt.i.toFixed(4)), q: Number(pt.q.toFixed(4)) })) : [];
+  const constellationData = data.recovered_symbols ? data.recovered_symbols.map((pt) => ({ i: Number(pt.i.toFixed(4)), q: Number(pt.q.toFixed(4)) })) : [];
+  const isFsk = data.modulation.toUpperCase().includes('FSK');
+  const fskPlotData = data.fsk_visualization_data?.instantaneous_frequency.map((frequency, x) => ({ x, frequency })) ?? [];
+
+  // Helper to format decoded bits to Hex and ASCII
+  const getFecOutputs = () => {
+    if (!data?.decoded_bits || data.decoded_bits.length === 0) {
+      return {
+        hex: data?.decoded_hex || '',
+        ascii: data?.decoded_ascii || '',
+        bytes: null as Uint8Array | null,
+        byteCount: 0,
+        bitCount: 0,
+      };
+    }
+
+    const bitCount = data.decoded_bits.length;
+    const byteCount = Math.ceil(bitCount / 8);
+    const bytes = new Uint8Array(byteCount);
+    for (let i = 0; i < bitCount; i++) {
+      if (data.decoded_bits[i]) {
+        bytes[Math.floor(i / 8)] |= 1 << (7 - (i % 8));
+      }
+    }
+
+    // Space-separated uppercase hex pairs (e.g. 4A 6F 68 6E)
+    const hex = data.decoded_hex || Array.from(bytes, (b) => b.toString(16).padStart(2, '0').toUpperCase()).join(' ');
+
+    // ASCII: printable characters with non-printable shown as '.' placeholders
+    const ascii = data.decoded_ascii || Array.from(bytes, (b) => (b >= 32 && b <= 126 ? String.fromCharCode(b) : '.')).join('');
+
+    return {
+      hex,
+      ascii,
+      bytes,
+      byteCount,
+      bitCount,
+    };
+  };
+
+  const fecOutput = getFecOutputs();
 
   return (
     <div className="space-y-16">
@@ -185,7 +168,7 @@ export default function Results() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
           <div>
             <div className="flex items-center space-x-3 mb-4">
-              <Link href="/" className="flex items-center space-x-2 px-4 py-2 rounded-full bg-cyan-950/60 border border-cyan-500/30 text-cyan-400 text-xs font-geist-mono font-weight-500 hover:bg-cyan-950/70 transition-colors duration-200">
+              <Link href="/" onClick={(event) => { if (loading) event.preventDefault(); else void leaveAnalysis(); }} className="flex items-center space-x-2 px-4 py-2 rounded-full bg-cyan-950/60 border border-cyan-500/30 text-cyan-400 text-xs font-geist-mono font-weight-500 hover:bg-cyan-950/70 transition-colors duration-200">
                 ← Back to Upload
               </Link>
               <span>/</span>
@@ -199,6 +182,7 @@ export default function Results() {
           <div className="flex items-center space-x-4">
             <Link
               href="/"
+              onClick={(event) => { if (loading) event.preventDefault(); else void leaveAnalysis(); }}
               className="inline-flex items-center space-x-2 px-6 py-3 rounded-pill bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20 transition-all duration-200 dark:bg-cyan-400/20 dark:text-cyan-500 dark:hover:bg-cyan-400/30"
             >
               <span>Analyse another Signal</span>
@@ -270,10 +254,13 @@ export default function Results() {
                       rows.push([]); // Empty row
                     }
 
-                    // Decoded bits (FEC output)
+                    if (data.synchronized_bits) rows.push(['Synchronized Bits', data.synchronized_bits.join('')]);
+                    // Only call the output FEC decoded when a decoder actually ran.
                     if (data.decoded_bits) {
-                      rows.push(['Decoded Bits (FEC Output)', data.decoded_bits.join('')]);
+                      rows.push([data.fec_ran ? 'FEC Decoded Bits' : 'Processed Bits (FEC not run)', data.decoded_bits.join('')]);
                       rows.push(['Decoded Bits Count', data.decoded_bits.length]);
+                      if (fecOutput.hex) rows.push(['Decoded Hex (FEC Output)', fecOutput.hex]);
+                      if (fecOutput.ascii) rows.push(['Decoded ASCII (FEC Output)', fecOutput.ascii]);
                       rows.push([]); // Empty row
                     }
 
@@ -458,7 +445,7 @@ export default function Results() {
                   : 'text-ink-muted hover:text-ink hover:bg-canvas/90'
               }`}
             >
-              I/Q Constellation Diagram
+              {isFsk ? 'Frequency States' : 'I/Q Constellation Diagram'}
             </button>
             <button
               onClick={() => setActiveTab('spectrogram')}
@@ -541,7 +528,17 @@ export default function Results() {
         {activeTab === 'constellation' && (
           <div className="space-y-4">
             <div className="h-96 w-full flex items-center justify-center">
-              {constellationData.length > 0 ? (
+              {isFsk && fskPlotData.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={fskPlotData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                    <XAxis dataKey="x" tick={{ fill: '#64748b', fontSize: 10 }} label={{ value: 'Sample Index', position: 'insideBottom', offset: -5, fill: '#64748b', fontSize: 10 }} />
+                    <YAxis tick={{ fill: '#64748b', fontSize: 10 }} label={{ value: 'Frequency (Hz)', angle: -90, position: 'insideLeft', fill: '#64748b', fontSize: 10 }} />
+                    <Tooltip />
+                    <Line type="monotone" dataKey="frequency" name="Instantaneous Frequency" stroke="#38bdf8" dot={false} isAnimationActive={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : !isFsk && constellationData.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
                   <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }} style={{ backgroundColor: 'transparent' }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
@@ -557,10 +554,10 @@ export default function Results() {
                   </ScatterChart>
                 </ResponsiveContainer>
               ) : (
-                <p className="text-ink-faint text-xs font-geist-mono">Constellation points not available for this real signal.</p>
+                <p className="text-ink-faint text-xs font-geist-mono">{isFsk ? 'Frequency state data not available.' : 'Recovered symbols not available.'}</p>
               )}
             </div>
-            <p className="text-center text-xs font-geist-mono text-ink-faint">Normalized complex baseband constellation scatter diagram</p>
+            <p className="text-center text-xs font-geist-mono text-ink-faint">{isFsk ? 'FSK Symbol Frequencies' : 'Recovered, timing and carrier corrected I/Q symbols'}</p>
           </div>
         )}
       </section>
@@ -587,7 +584,7 @@ export default function Results() {
           </h2>
           <div className="space-y-4">
             <div className="h-48 w-full bg-canvas-elevated overflow-auto p-4">
-              <pre className="font-geist-mono text-xs text-ink">
+              <pre className="font-geist-mono text-lg text-ink">
                 {data.demodulated_bits
                   .slice(0, 100)
                   .map(bit => bit.toString())
@@ -620,7 +617,7 @@ export default function Results() {
           </h2>
           <div className="space-y-4">
             <div className="h-48 w-full bg-canvas-elevated overflow-auto p-4">
-              <pre className="font-geist-mono text-xs text-ink">
+              <pre className="font-geist-mono text-lg text-ink">
                 {data.deinterleaved_bits
                   .slice(0, 100)
                   .map(bit => bit.toString())
@@ -646,37 +643,125 @@ export default function Results() {
           </div>
         </section>
       )}
+      {/* FEC Decoded Output */}
       {data?.decoded_bits && (
         <section className="bg-canvas-elevated hairline-border rounded-lg p-6 whisper-shadow">
-          <h2 className="font-geist font-weight-600 text-lg text-ink mb-6">
-            FEC Decoded Stream
-          </h2>
-          <div className="space-y-4">
-            <div className="h-48 w-full bg-canvas-elevated overflow-auto p-4">
-              <pre className="font-geist-mono text-xs text-ink">
-                {data.decoded_bits
-                  .slice(0, 100)
-                  .map(bit => bit.toString())
-                  .join('')}
-                {data.decoded_bits.length > 100 ? '...' : ''}
-              </pre>
+          <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+            <div className="flex items-center space-x-3">
+              <h2 className="font-geist font-weight-600 text-lg text-ink">
+                {data.fec_ran ? 'FEC Decoded Output' : 'Processed Bits (FEC not run)'}
+              </h2>
+              {fecScheme && fecScheme.toLowerCase() !== 'none' && (
+                <span className="px-2.5 py-0.5 rounded-full text-xs font-geist-mono font-weight-500 bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+                  {fecScheme.toUpperCase()}
+                </span>
+              )}
             </div>
-            <button
-              onClick={() => {
-                const bitsString = data.decoded_bits?.join('') || '';
-                const blob = new Blob([bitsString], { type: 'text/plain' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = 'decoded_bits.txt';
-                a.click();
-                URL.revokeObjectURL(url);
-              }}
-              className="inline-flex items-center space-x-2 px-5 py-2.5 rounded-pill font-geist font-weight-500 transition-all duration-200 hover:bg-ink/90 bg-ink text-on-primary dark:hover:bg-ink/20 dark:bg-ink/10 dark:text-ink"
-            >
-              <span>Download Full Data</span>
-            </button>
+            <div className="text-xs font-geist-mono text-ink-faint">
+              {fecOutput.bitCount.toLocaleString()} bits • {fecOutput.byteCount.toLocaleString()} bytes
+            </div>
           </div>
+
+          {fecOutput.bitCount === 0 ? (
+            <div className="p-6 rounded-md bg-canvas/60 border border-hairline text-center">
+              <p className="text-sm font-geist-mono text-ink-faint">
+                No decoded output available.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {/* Bits Preview */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-geist text-sm font-weight-500 text-ink-muted">
+                    Decoded Bitstream (first {Math.min(fecOutput.bitCount, 512)} bits):
+                  </span>
+                  <span className="text-xs font-geist-mono text-ink-faint">
+                    Total: {fecOutput.bitCount.toLocaleString()} bits
+                  </span>
+                </div>
+                <div className="h-32 w-full bg-canvas/80 border border-hairline rounded-md overflow-x-auto overflow-y-auto p-4">
+                  <pre className="font-geist-mono text-sm text-ink whitespace-pre-wrap break-all leading-relaxed">
+                    {data.decoded_bits.slice(0, 512).join('')}
+                    {fecOutput.bitCount > 512 ? '...' : ''}
+                  </pre>
+                </div>
+              </div>
+
+              {/* Hex Preview */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-geist text-sm font-weight-500 text-ink-muted">
+                    Hex:
+                  </span>
+                  <span className="text-xs font-geist-mono text-ink-faint">
+                    Space-separated uppercase hex pairs
+                  </span>
+                </div>
+                <div className="h-32 w-full bg-canvas/80 border border-hairline rounded-md overflow-x-auto overflow-y-auto p-4">
+                  <pre className="font-geist-mono text-sm text-ink whitespace-pre-wrap break-all leading-relaxed tracking-wider">
+                    {fecOutput.hex || '—'}
+                  </pre>
+                </div>
+              </div>
+
+              {/* ASCII Preview */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-geist text-sm font-weight-500 text-ink-muted">
+                    ASCII:
+                  </span>
+                  <span className="text-xs font-geist-mono text-ink-faint">
+                    Non-printable bytes shown as &quot;.&quot;
+                  </span>
+                </div>
+                <div className="h-32 w-full bg-canvas/80 border border-hairline rounded-md overflow-x-auto overflow-y-auto p-4">
+                  <pre className="font-geist-mono text-sm text-ink whitespace-pre-wrap break-all leading-relaxed tracking-wide">
+                    {fecOutput.ascii || '—'}
+                  </pre>
+                </div>
+              </div>
+
+              {/* Download buttons */}
+              <div className="flex flex-wrap items-center gap-3 pt-2">
+                <button
+                  onClick={() => {
+                    const bitsString = data.decoded_bits?.join('') || '';
+                    const blob = new Blob([bitsString], { type: 'text/plain' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    const cleanFileName = fileName.replace(/\.[^/.]+$/, '');
+                    a.download = `${cleanFileName}_fec_decoded_bits.txt`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  }}
+                  className="inline-flex items-center space-x-2 px-5 py-2.5 rounded-pill font-geist font-weight-500 transition-all duration-200 hover:bg-ink/90 bg-ink text-on-primary dark:hover:bg-ink/20 dark:bg-ink/10 dark:text-ink text-xs"
+                >
+                  <span>Download Bits (.txt)</span>
+                </button>
+
+                {fecOutput.bytes && (
+                  <button
+                    onClick={() => {
+                      if (!fecOutput.bytes) return;
+                      const blob = new Blob([fecOutput.bytes.buffer as ArrayBuffer], { type: 'application/octet-stream' });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      const cleanFileName = fileName.replace(/\.[^/.]+$/, '');
+                      a.download = `${cleanFileName}_fec_decoded.bin`;
+                      a.click();
+                      URL.revokeObjectURL(url);
+                    }}
+                    className="inline-flex items-center space-x-2 px-5 py-2.5 rounded-pill font-geist font-weight-500 transition-all duration-200 hover:bg-cyan-500/20 bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 text-xs"
+                  >
+                    <span>Download Decoded (.bin)</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
         </section>
       )}
       {data && data.correlate_result && (
@@ -686,7 +771,7 @@ export default function Results() {
           </h2>
           <div className="space-y-4">
             <div className="h-48 w-full bg-canvas-elevated overflow-auto p-4">
-              <pre className="font-geist-mono text-xs text-ink">
+              <pre className="font-geist-mono text-lg text-ink">
                 {data.correlate_result!.bits ? (
                   data.correlate_result!.bits
                     .slice(0, 100)
@@ -738,14 +823,12 @@ export default function Results() {
                   onChange={(e) => setData({ ...data, sample_rate: Number(e.target.value) })}
                   onKeyDown={async (e) => {
                     if (e.key === "Enter") {
+                      e.currentTarget.blur();
                       await handleSampleRateChange();
                     }
                     if (e.key === "Escape") {
                       setEditingSampleRate(false); // cancel edit
                     }
-                  }}
-                  onBlur={async (e) => {
-                    await handleSampleRateChange();
                   }}
                   min="1"
                   step="1"
@@ -759,6 +842,53 @@ export default function Results() {
             {!editingSampleRate && (
               <button
                 onClick={() => setEditingSampleRate(true)}
+                className="text-xs font-geist-mono text-cyan-500 hover:text-cyan-400 mt-1"
+              >
+                Edit
+              </button>
+            )}
+          </div>
+          <div className="p-4 bg-canvas-elevated/90 border border-hairline rounded-md">
+            <span className="block text-xs font-geist-mono font-weight-500 text-ink-faint">FEC Scheme</span>
+            {editingFecScheme ? (
+              <div className="flex items-center space-x-2">
+                <select
+                  value={fecScheme}
+                  onChange={(e) => {
+                    setFecScheme(e.target.value);
+                  }}
+                  disabled={loading}
+                  className="flex-1 bg-canvas-elevated border border-hairline rounded-md px-4 py-2 text-sm font-geist-mono text-ink focus:outline-none focus:ring-2 focus-ring-blue focus:border-blue transition-colors duration-200"
+                >
+                  <option value="none">None</option>
+                  <option value="viterbi">Viterbi</option>
+                  <option value="reed-solomon">Reed-Solomon</option>
+                  <option value="concatenated">Concatenated</option>
+                  <option value="ldpc">LDPC</option>
+                </select>
+                <button
+                  type="button"
+                  disabled={loading || !data}
+                  onClick={() => {
+                    setEditingFecScheme(false);
+                    // Trigger re-processing with current FEC scheme
+                    if (data) {
+                      handleSampleRateChange();
+                    }
+                  }}
+                  className="shrink-0 px-3 py-2 text-xs font-geist-mono text-ink-faint bg-canvas-elevated border border-hairline rounded-md hover:border-cyan-500/50 hover:text-ink transition-colors duration-200"
+                >
+                  Apply
+                </button>
+              </div>
+            ) : (
+              <span className="block font-geist-mono font-weight-600 text-ink">
+                {fecScheme || 'None'}
+              </span>
+            )}
+            {!editingFecScheme && (
+              <button
+                onClick={() => setEditingFecScheme(true)}
                 className="text-xs font-geist-mono text-cyan-500 hover:text-cyan-400 mt-1"
               >
                 Edit

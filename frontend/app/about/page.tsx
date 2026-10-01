@@ -85,6 +85,12 @@ export default function About() {
 
       {/* CTA */}
       <div className="text-center pt-8">
+        <p className="mb-5 flex items-center justify-center gap-1.5 text-xs text-yellow-500">
+          <svg aria-hidden="true" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5 shrink-0">
+            <path fillRule="evenodd" d="M9.1 2.7a1 1 0 0 1 1.8 0l7.2 13.1A1 1 0 0 1 17.2 17H2.8a1 1 0 0 1-.9-1.2L9.1 2.7ZM10 7a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0v-3.5A.75.75 0 0 1 10 7Zm0 7.5a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" clipRule="evenodd" />
+          </svg>
+          Accuracy is still being improved; treat modulation and parameter estimates as provisional and verify important results.
+        </p>
         <Link href="/" className="inline-flex items-center space-x-2 px-6 py-3 rounded-pill border border-[var(--color-blue)] text-ink font-geist font-weight-500 hover:bg-[var(--color-blue)]/10 transition-all duration-200">
           Start Analyzing Signals
         </Link>

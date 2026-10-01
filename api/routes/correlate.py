@@ -188,8 +188,7 @@ async def correlate_signal_file(
     sync_word: Optional[str] = Query(None, description="Sync word name ('Barker-13', 'CCSDS-32', etc.), hex string, or binary string"),
     frame_length: Optional[int] = Query(None, description="Expected frame length in bits (optional)"),
     threshold: float = Query(0.80, description="Correlation threshold (0.0 to 1.0)"),
-    tolerate_inverted: bool = Query(True, description="Tolerate 180° carrier phase inversion"),
-    fs: float = Query(1_000_000.0, description="Sampling rate in Hz if not in metadata"),
+    fs: float = Query(1_000_000.0, description="Target WAV sample rate; default sample rate for IQ data"),
     fec_scheme: str = Query("none", description="FEC Scheme: 'none', 'viterbi', 'reed-solomon', 'concatenated', 'ldpc'"),
     auto_deinterleave: bool = Query(True, description="Auto deinterleave demodulated bitstream"),
     auto_discover: bool = Query(True, description="Run automatic preamble discovery"),
@@ -197,7 +196,7 @@ async def correlate_signal_file(
     """Demodulate, optionally FEC decode and deinterleave, then correlate and frame synchronize an RF signal file."""
     try:
         contents = await file.read()
-        sig, sample_rate = load_signal_from_bytes(contents, file.filename or "", default_fs=fs)
+        sig, sample_rate = load_signal_from_bytes(contents, file.filename or "", default_fs=fs, target_fs=fs)
 
         # 1. Classify modulation (CNN-authoritative with RF fallback)
         from ps26147_toolkit.cnn_runtime import predict_iq_array

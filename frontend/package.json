@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test:decode": "node --experimental-strip-types --test tests/decodeSignal.test.mjs",
+    "test:storage": "node --experimental-strip-types --test tests/signalStorage.test.mjs"
   },
   "dependencies": {
     "@tailwindcss/postcss": "^4.3.3",

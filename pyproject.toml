@@ -11,11 +11,11 @@ readme = "README.md"
 license = "MIT"
 requires-python = ">=3.9"
 dependencies = [
-    "numpy",
-    "scipy",
+    "numpy==1.26.4",
+    "scipy==1.13.1",
     "matplotlib",
     "pandas",
-    "scikit-learn",
+    "scikit-learn==1.4.2",
     "torch",
     "torchvision",
     "librosa",
@@ -24,7 +24,7 @@ dependencies = [
     "uv",
     "streamlit",
     "plotly",
-    "joblib",
+    "joblib==1.4.2",
     "fastapi",
     "uvicorn[standard]",
     "python-multipart",
@@ -44,5 +44,6 @@ pythonpath = ["."]
 filterwarnings = [
     "ignore::DeprecationWarning",
 ]
+markers = ["regression: end-to-end API, simulator, storage, and pipeline regressions"]
 
 

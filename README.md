@@ -1,5 +1,19 @@
 # README for the PS26147 Toolkit
 
+## Regression suite
+Run the complete Python API/unit and end-to-end regression suite, then the frontend request and storage regressions, from the repository root:
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q
+Push-Location frontend
+npm run test:decode; npm run test:storage
+Pop-Location
+```
+Run only the end-to-end cases and write their machine-readable ledger to `regression-report.json`:
+```powershell
+.\.venv\Scripts\python.exe -m pytest -m regression -q
+```
+The JSON ledger records each end-to-end test's expected result, measured result, tolerance, pipeline stage, and pass/fail state. It is generated from test outcomes and is not the clean-corpus accuracy report.
+
 ## Overview
 `ps26147_toolkit` is a Python package that provides a command‑line interface and a lightweight Streamlit UI for automated analysis of raw signal files (`.iq` and `.wav`).
 

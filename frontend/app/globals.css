@@ -30,17 +30,17 @@
   --font-geist: 'Inter', Arial, sans-serif;
   --font-geist-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 
-  /* Font sizes - slightly increased for better visibility */
-  --font-size-xs: 0.8125rem; /* 13px */
-  --font-size-sm: 0.9375rem; /* 15px */
-  --font-size-base: 1rem;     /* 16px */
-  --font-size-lg: 1.125rem;   /* 18px */
-  --font-size-xl: 1.25rem;    /* 20px */
-  --font-size-2xl: 1.5rem;    /* 24px */
-  --font-size-3xl: 1.875rem;  /* 30px */
-  --font-size-4xl: 2.25rem;   /* 36px */
-  --font-size-5xl: 3rem;      /* 48px */
-  --font-size-6xl: 3.75rem;   /* 60px */
+  /* Font sizes - increased for better visibility */
+  --font-size-xs: 0.875rem; /* 14px */
+  --font-size-sm: 1rem;     /* 16px */
+  --font-size-base: 1.0625rem; /* 17px */
+  --font-size-lg: 1.1875rem;   /* 19px */
+  --font-size-xl: 1.3125rem;    /* 21px */
+  --font-size-2xl: 1.5625rem;    /* 25px */
+  --font-size-3xl: 1.9375rem;  /* 31px */
+  --font-size-4xl: 2.3125rem;   /* 37px */
+  --font-size-5xl: 3.0625rem;      /* 49px */
+  --font-size-6xl: 3.8125rem;   /* 61px */
 }
 
 /* Light mode overrides */
@@ -147,6 +147,48 @@ body {
 
 .btn-lg {
   @apply px-8 py-3 rounded-md;
+}
+
+.live-stream-toggle {
+  border: 1px solid transparent;
+  transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease,
+    box-shadow 160ms ease, transform 160ms ease;
+}
+
+.live-stream-toggle[data-state="running"] {
+  background-color: var(--color-canvas-elevated);
+  border-color: var(--color-hairline);
+  color: var(--color-ink);
+}
+
+.live-stream-toggle[data-state="paused"] {
+  background-color: var(--color-accent);
+  color: var(--color-canvas);
+}
+
+.live-stream-toggle[data-state="running"]:hover:not(:disabled) {
+  background-color: color-mix(in srgb, var(--color-accent) 14%, var(--color-canvas-elevated));
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.live-stream-toggle[data-state="paused"]:hover:not(:disabled) {
+  background-color: color-mix(in srgb, var(--color-accent) 82%, var(--color-canvas));
+}
+
+.live-stream-toggle:hover:not(:disabled) {
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--color-accent) 24%, transparent);
+  transform: translateY(-2px);
+}
+
+.live-stream-toggle:active:not(:disabled) {
+  box-shadow: none;
+  transform: translateY(0);
+}
+
+.live-stream-toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 /* Input base */

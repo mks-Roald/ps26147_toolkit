@@ -11,6 +11,7 @@ from ps26147_toolkit.classifier import (
     MODULATION_CLASSES,
 )
 from ps26147_toolkit.feature_extractor import rrc_filter
+from api.routes.stream import generate_sdr_frame
 
 
 def generate_test_signal(mod: str, num_symbols: int = 512, sps: int = 8, fs: float = 1e6, snr_db: float = 20.0):
@@ -173,3 +174,25 @@ def test_modulation_classifier_serialization(tmp_path):
     sig = generate_test_signal("QPSK", fs=1e6)
     pred = clf_loaded.predict(sig, fs=1e6)
     assert pred in MODULATION_CLASSES
+
+
+@pytest.mark.parametrize("mod", ["BPSK", "QPSK", "8PSK", "16QAM", "64QAM", "2FSK", "4FSK"])
+@pytest.mark.parametrize("snr", [40, 20, 10, 5])
+@pytest.mark.parametrize("baud", [25000, 50000])
+def test_live_simulator_ground_truth_diagnostics(mod, snr, baud):
+    """Exercise actual noisy-signal classification throughout the simulator range."""
+    frame = generate_sdr_frame(mod, snr_db=snr, baud_rate=baud, fs=1e6,
+                               n_samples=4096, seed=2701 + snr + baud)
+    assert frame["configured_modulation"] == mod
+    assert frame["detected_modulation"] in MODULATION_CLASSES
+    assert frame["classification_correct"] == (frame["detected_modulation"] == mod)
+    assert 0 <= frame["confidence"] <= 1
+    assert frame["configured_snr"] == snr
+    assert frame["configured_baud"] == baud
+    if "FSK" in mod:
+        assert frame["visualization"] == "frequency"
+        assert frame["frequency_states"]
+        assert not frame["constellation"]
+    else:
+        assert frame["visualization"] == "constellation"
+        assert frame["constellation"]

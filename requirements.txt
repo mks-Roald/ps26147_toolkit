@@ -1,9 +1,9 @@
 # Core Signal Processing & ML Dependencies
-numpy
-scipy
+numpy==1.26.4
+scipy==1.13.1
 matplotlib
 pandas
-scikit-learn
+scikit-learn==1.4.2
 torch
 torchvision
 librosa
@@ -12,7 +12,7 @@ tqdm
 uv
 streamlit
 plotly
-joblib
+joblib==1.4.2
 
 # Backend API & Server Dependencies
 fastapi

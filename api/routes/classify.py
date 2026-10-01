@@ -1,5 +1,6 @@
 from fastapi import APIRouter, UploadFile, File, Query, HTTPException
 from ps26147_toolkit import classifier
+from ps26147_toolkit.analysis import analyze_signal
 from api.schemas import ClassifyResponse
 from api.utils import load_signal_from_bytes
 import numpy as np
@@ -15,14 +16,15 @@ FEATURE_NAMES = [
 @router.post("/", response_model=ClassifyResponse)
 async def classify_signal(
     file: UploadFile = File(...),
-    fs: float = Query(1_000_000.0, description="Sampling rate in Hz if not in metadata")
+    fs: float = Query(1_000_000.0, description="Target WAV sample rate; default sample rate for IQ data")
 ):
     try:
         contents = await file.read()
-        sig, sample_rate = load_signal_from_bytes(contents, file.filename or "", default_fs=fs)
+        sig, sample_rate = load_signal_from_bytes(contents, file.filename or "", default_fs=fs, target_fs=fs)
         
-        from ps26147_toolkit.cnn_runtime import predict_iq_array
-        result = predict_iq_array(sig, sample_rate_hz=sample_rate)
+        analysis = analyze_signal(sig, sample_rate)
+        result = analysis.classification
+        params = analysis.parameters
         
         # Format features safely as key-value dict
         raw_feats = result.get("features")
@@ -45,7 +47,11 @@ async def classify_signal(
         return ClassifyResponse(
             modulation=result["modulation"],
             confidence=float(result["confidence"]),
-            features=features_dict
+            features=features_dict,
+            center_frequency_hz=float(params["center_frequency_hz"]),
+            bandwidth_hz=float(params["bandwidth_hz"]),
+            baud_rate=float(params["baud_rate"]),
+            snr_db=float(params["snr_db"]),
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Classification error: {str(e)}")

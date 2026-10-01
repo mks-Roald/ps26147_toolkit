@@ -1,5 +1,7 @@
 import numpy as np
 from scipy.signal import hilbert, resample_poly
+from functools import reduce
+from math import gcd
 
 
 # Ideal constellation templates for EVM calculation & reference
@@ -75,89 +77,90 @@ def costas_carrier_recovery(
     return out_sig
 
 
-def gardner_timing_recovery(
-    sig: np.ndarray,
-    sps: float,
-    loop_bw: float = 0.01,
-) -> np.ndarray:
-    """Gardner Timing Error Detector (TED) with fractional interpolation.
+def _cubic_interp(sig: np.ndarray, pos: float):
+    b = int(np.floor(pos))
+    f = pos - b
+    if b < 1 or b + 2 >= len(sig):
+        return None
+    c0 = -f * (f - 1) * (f - 2) / 6.0
+    c1 = (f + 1) * (f - 1) * (f - 2) / 2.0
+    c2 = -(f + 1) * f * (f - 2) / 2.0
+    c3 = (f + 1) * f * (f - 1) / 6.0
+    return c0 * sig[b - 1] + c1 * sig[b] + c2 * sig[b + 1] + c3 * sig[b + 2]
 
-    Phase 4 Enhancement: Adaptive symbol clock tracking that samples at optimal
-    eye-diagram opening using fractional cubic interpolation.
 
-    Args:
-        sig: Complex baseband signal
-        sps: Samples per symbol (float, can be fractional)
-        loop_bw: Loop bandwidth for timing recovery loop filter
+def _acquire_symbol_phase(sig: np.ndarray, sps: float, max_syms: int = 400) -> float:
+    """Find a symbol-centre sampling phase from the eye opening or transitions."""
+    n = len(sig)
+    L = int(round(sps))
+    K = min(max_syms, (n - 2) // max(L, 1) - 1)
+    if K < 8 or L < 4:
+        return sps / 2.0
+    m = (K + 1) * L + 1
+    ang = 2 * np.pi * np.arange(L) / L
 
-    Returns:
-        Array of recovered symbols (1 sample per symbol)
-    """
+    E = np.array([np.mean(np.abs(sig[o:m:L][:K])) for o in range(L)])
+    if (E.max() - E.min()) > 0.15 * np.mean(E):
+        w = np.clip(E - E.min(), 0, None) ** 2
+        return (np.angle(np.sum(w * np.exp(1j * ang))) % (2 * np.pi)) / (2 * np.pi) * L
+
+    d = np.abs(np.diff(sig[:m])) ** 2
+    T = np.array([np.mean(d[o::L][:K]) for o in range(L)])
+    if (T.max() - T.min()) < 0.5 * np.mean(T) + 1e-12:
+        return sps / 2.0
+    w = np.clip(T - T.min(), 0, None)
+    boundary = (np.angle(np.sum(w * np.exp(1j * ang))) % (2 * np.pi)) / (2 * np.pi) * L
+    return (boundary + 1.0 + sps / 2.0) % sps
+
+
+def gardner_timing_recovery(sig: np.ndarray, sps: float, loop_bw: float = 0.03) -> np.ndarray:
+    """Gardner TED, 2nd-order loop with acquired phase and cubic interpolation."""
     if sps <= 1.0:
         return sig
-
     n = len(sig)
-    mu = 0.0  # Fractional timing offset [0, 1)
-    mu_samples = []
-    symbols = []
-
-    # Loop filter gains
     alpha = loop_bw
     beta = (alpha ** 2) / 4.0
+    fmax = 0.02 * sps
 
-    # Tracking variables
-    sample_idx = sps  # Start after first symbol period
-    prev_sample = sig[0]
-    mid_sample = sig[0]
+    pos = _acquire_symbol_phase(sig, sps)
+    while pos < 2.0:
+        pos += sps
 
-    while sample_idx < n - sps:
-        # Fractional interpolation using cubic (4-point) interpolation
-        base_idx = int(np.floor(sample_idx))
-        frac = sample_idx - base_idx
+    freq = 0.0
+    prev = None
+    out = []
+    while pos < n - sps - 2:
+        x = _cubic_interp(sig, pos)
+        if x is None:
+            pos += 1.0
+            continue
+        out.append(x)
+        step = sps
+        if prev is not None:
+            m1 = _cubic_interp(sig, pos - sps / 2.0 - 0.5)
+            m2 = _cubic_interp(sig, pos - sps / 2.0 + 0.5)
+            if m1 is not None and m2 is not None:
+                mid = 0.5 * (m1 + m2)
+                pw = 0.5 * (abs(x) ** 2 + abs(prev) ** 2) + 1e-12
+                err = float(((x - prev) * np.conj(mid)).real / pw)
+                err = max(-2.0, min(2.0, err))
+                freq = max(-fmax, min(fmax, freq + beta * err))
+                step = sps - alpha * err - freq
+        pos += step
+        prev = x
+    return np.array(out, dtype=np.complex64)
 
-        # Ensure we have enough samples for 4-point interpolation
-        if base_idx < 1 or base_idx + 2 >= n:
-            break
 
-        # Cubic interpolation: y(mu) = y[-1]*c0 + y[0]*c1 + y[1]*c2 + y[2]*c3
-        c0 = -frac * (frac - 1) * (frac - 2) / 6.0
-        c1 = (frac + 1) * (frac - 1) * (frac - 2) / 2.0
-        c2 = -(frac + 1) * frac * (frac - 2) / 2.0
-        c3 = (frac + 1) * frac * (frac - 1) / 6.0
-
-        interpolated = (
-            c0 * sig[base_idx - 1]
-            + c1 * sig[base_idx]
-            + c2 * sig[base_idx + 1]
-            + c3 * sig[base_idx + 2]
-        )
-
-        symbols.append(interpolated)
-
-        # Gardner TED: error = real[(x[n] - x[n-2]) * conj(x[n-1])]
-        # Uses current, previous, and midpoint samples
-        mid_idx = int(np.floor(sample_idx - sps / 2.0))
-        if mid_idx >= 0 and mid_idx < n:
-            mid_sample = sig[mid_idx]
-
-        # Gardner error detector (works for most modulations)
-        error = ((interpolated - prev_sample) * np.conj(mid_sample)).real
-
-        # Update timing with loop filter
-        mu += beta * error
-        sample_idx += sps + alpha * error + mu
-
-        # Clamp mu to prevent runaway
-        if mu > 0.5:
-            mu -= 1.0
-            sample_idx -= 1.0
-        elif mu < -0.5:
-            mu += 1.0
-            sample_idx += 1.0
-
-        prev_sample = interpolated
-
-    return np.array(symbols, dtype=np.complex64)
+def run_length_baud_factor(bits, min_runs: int = 40, max_k: int = 8) -> int:
+    """Detect integer baud overestimates from the GCD of complete bit runs."""
+    b = np.asarray(bits).astype(np.int8)
+    if len(b) < 64:
+        return 1
+    runs = np.diff(np.flatnonzero(np.diff(b) != 0))
+    if len(runs) < min_runs:
+        return 1
+    g = int(reduce(gcd, [int(x) for x in runs]))
+    return g if 2 <= g <= max_k else 1
 
 
 def symbol_timing_recovery(
@@ -244,36 +247,67 @@ def compute_soft_llr(
         return np.clip(llrs, -20.0, 20.0).astype(np.float32)
 
     if "FSK" in mod_upper:
-        # FSK (Phase 6 §1.6): bits live in instantaneous frequency, not the
-        # static complex constellation, so the generic distant-based LLR is
-        # meaningless here.  Derive LLR from the signed, diff'd instantaneous
-        # frequency estimate -- the same signal slice_symbols_to_bits uses:
-        #   dev = diff(unwrap(angle(symbols))),  bit 1 when dev >= 0.
-        # LLR convention (positive -> bit 0, negative -> bit 1) then gives
-        #   llr = -dev / noise_variance,  scaled by discriminator noise var.
-        dev = np.diff(np.unwrap(np.angle(symbols)))
+        # FSK: bits live in instantaneous frequency, not the static complex
+        # constellation.  Derive LLR from the signed, np.diff'd instantaneous
+        # phase -- the same signal slice_symbols_to_bits() uses for the hard
+        # decision:
+        #   dev = np.diff(np.unwrap(np.angle(symbols))),  bit 1 when dev >= 0.
+        # LLR convention (positive -> bit 0, negative -> bit 1) gives:
+        #   llr = -dev / disc_noise_var
+        #
+        # disc_noise_var is estimated from the spread of `dev` itself (the
+        # actual deviation-domain noise), NOT from the constellation-domain
+        # noise_variance argument, which is irrelevant for FSK.
+        dev = np.diff(np.unwrap(np.angle(symbols)))  # length == len(symbols)-1
+
+        # Estimate discriminator noise variance from deviation signal residuals.
+        # Noise proxy: var(dev - sign(dev)*mean_abs_dev).
+        # Falls back to noise_variance when dev is too short.
+        if len(dev) >= 2:
+            mean_abs_dev = float(np.mean(np.abs(dev)))
+            disc_noise_var = float(np.var(dev - np.sign(dev) * mean_abs_dev))
+            disc_noise_var = max(disc_noise_var, 1e-6)
+        else:
+            disc_noise_var = max(float(noise_variance), 1e-6)
+
         if "4FSK" in mod_upper:
-            # 4FSK maps a sample of dev to 2 bits via the population quantiles
-            # q1 < q2 < q3  (see slice_symbols_to_bits).  For each of the two
-            # bit positions we soft-metric the distance of dev to its decision
-            # boundary, scaled by noise_variance.  This is approximate (not a
-            # full Gray-map), but strictly better than the -symbols.real fallback.
+            # 4FSK maps each dev sample to 2 bits via population quantiles
+            # q1 < q2 < q3 (see slice_symbols_to_bits).
+            # Returned length: 2*(len(symbols)-1) — matches 4FSK hard-bit count.
             if len(dev) == 0:
-                return np.array([], dtype=np.float32)
-            q1, q2, q3 = np.percentile(dev, [25, 50, 75])
-            out: list[float] = []
-            for d in dev:
-                # MSB (bit 0): boundary q2 splits the lower two levels from the
-                # upper two; dev < q2 -> bit 0.
-                out.append(float(np.clip(-(d - q2) / noise_variance, -20.0, 20.0)))
-                # LSB (bit 1): boundary q1 within the lower half, q3 within the
-                # upper half.
-                b = q1 if d < q2 else q3
-                out.append(float(np.clip(-(d - b) / noise_variance, -20.0, 20.0)))
-            return np.array(out, dtype=np.float32)
-        # 2FSK / generic FSK: 1 bit per deviation sample
-        llrs = -dev / noise_variance
-        return np.clip(llrs, -20.0, 20.0).astype(np.float32)
+                llrs = np.array([], dtype=np.float32)
+            else:
+                q1, q2, q3 = np.percentile(dev, [25, 50, 75])
+                out: list[float] = []
+                for d in dev:
+                    # MSB (bit 0): boundary q2 splits lower two levels from upper two.
+                    out.append(float(np.clip(-(d - q2) / disc_noise_var, -20.0, 20.0)))
+                    # LSB (bit 1): boundary q1 in lower half, q3 in upper half.
+                    # Gray mapping: d<q1 -> 0, q1<=d<q2 -> 1, q2<=d<q3 -> 1, d>=q3 -> 0
+                    if d < q2:
+                        llr_b1 = -(d - q1) / disc_noise_var
+                    else:
+                        llr_b1 = (d - q3) / disc_noise_var
+                    out.append(float(np.clip(llr_b1, -20.0, 20.0)))
+                llrs = np.array(out, dtype=np.float32)
+            expected_bit_count = 2 * (len(symbols) - 1)
+            assert len(llrs) == expected_bit_count, (
+                f"compute_soft_llr length mismatch: got {len(llrs)} LLRs, "
+                f"expected {expected_bit_count} for {modulation} "
+                f"(len(symbols)={len(symbols)})"
+            )
+            return llrs
+
+        # 2FSK / generic FSK: 1 LLR per dev sample → exactly len(symbols)-1 LLRs.
+        # This matches the hard-bit count from slice_symbols_to_bits() for FSK.
+        llrs = np.clip(-dev / disc_noise_var, -20.0, 20.0).astype(np.float32)
+        expected_bit_count = len(symbols) - 1
+        assert len(llrs) == expected_bit_count, (
+            f"compute_soft_llr length mismatch: got {len(llrs)} LLRs, "
+            f"expected {expected_bit_count} for {modulation} "
+            f"(len(symbols)={len(symbols)})"
+        )
+        return llrs
 
     constellation = CONSTELLATIONS.get(mod_upper.replace("-", ""))
 
@@ -317,7 +351,14 @@ def compute_soft_llr(
             llr = np.clip(llr, -20.0, 20.0)
             llrs.append(llr)
 
-    return np.array(llrs, dtype=np.float32)
+    llrs = np.array(llrs, dtype=np.float32)
+    expected_bit_count = len(symbols) * bits_per_symbol
+    assert len(llrs) == expected_bit_count, (
+        f"compute_soft_llr length mismatch: got {len(llrs)} LLRs, "
+        f"expected {expected_bit_count} for {modulation} "
+        f"(len(symbols)={len(symbols)}, bits_per_symbol={bits_per_symbol})"
+    )
+    return llrs
 
 
 def slice_symbols_to_bits(symbols: np.ndarray, modulation: str) -> tuple[np.ndarray, np.ndarray]:
@@ -514,6 +555,7 @@ def demodulate_signal(
     center_freq: float = 0.0,
     baud_rate: float = None,
     timing_method: str = "gardner",
+    _baud_checked: bool = False,
 ) -> dict:
     """Complete demodulation pipeline with Phase 4 enhancements.
 
@@ -569,8 +611,13 @@ def demodulate_signal(
 
     # 3. Carrier PLL / Phase Tracking (Phase 4: with drift prevention)
     mod_upper = modulation.upper()
-    order = 2 if "BPSK" in mod_upper else (8 if "8PSK" in mod_upper else 4)
-    symbols_tracked = costas_carrier_recovery(symbols_raw, order=order)
+    if "FSK" in mod_upper:
+        # FSK: information is in instantaneous frequency; carrier recovery would
+        # remove the modulation. Skip carrier loop for FSK.
+        symbols_tracked = symbols_raw
+    else:
+        order = 2 if "BPSK" in mod_upper else (8 if "8PSK" in mod_upper else 4)
+        symbols_tracked = costas_carrier_recovery(symbols_raw, order=order)
 
     # 4. Energy normalization
     p_avg = np.mean(np.abs(symbols_tracked) ** 2)
@@ -581,6 +628,14 @@ def demodulate_signal(
 
     # 5. Slicing to bits & reference symbols
     bits, ref_symbols = slice_symbols_to_bits(symbols_norm, modulation)
+
+    if not _baud_checked and baud_rate is not None:
+        k = run_length_baud_factor(bits)
+        if k > 1:
+            return demodulate_signal(
+                signal, fs, modulation, center_freq, baud_rate / k,
+                timing_method, _baud_checked=True,
+            )
 
     # 6. EVM calculation.  FSK uses the deviation-domain metric (Phase 6 §1.6):
     #    the constellation-domain compute_evm() measures phase rotation, not
@@ -609,4 +664,5 @@ def demodulate_signal(
         "evm_db": evm_results["evm_db"],
         "evm_percent": evm_results["evm_percent"],
         "modulation": modulation,
+        "baud_rate_used": baud_rate,
     }

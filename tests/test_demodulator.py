@@ -778,5 +778,191 @@ class TestFskEVMAndLLR:
         assert np.all(llr >= -20.0) and np.all(llr <= 20.0)
 
 
+class TestFskComputeSoftLLRHardBitLength:
+    """Verify FSK compute_soft_llr() returns LLR whose length equals the
+    hard-bit count produced by slice_symbols_to_bits() — for multiple
+    signal lengths (at least 3), covering both 2FSK and 4FSK.
+
+    This is a regression guard: the FSK branch computes
+    ``dev = np.diff(...)`` so LLR length = len(symbols)-1 for 2FSK and
+    2*(len(symbols)-1) for 4FSK.  Any arithmetic mistake that returns
+    len(symbols) instead would break FEC soft-decoding downstream.
+    """
+
+    @pytest.mark.parametrize("n_symbols", [10, 30, 100])
+    def test_2fsk_llr_length_matches_hard_bits(self, n_symbols: int):
+        """2FSK: LLR length must equal len(hard_bits) == n_symbols - 1."""
+        rng = np.random.default_rng(n_symbols)
+        angles = np.linspace(-2.0, 2.0, n_symbols) + rng.normal(0, 0.1, n_symbols)
+        syms = np.exp(1j * angles).astype(np.complex64)
+
+        hard_bits, _ = slice_symbols_to_bits(syms, "2FSK")
+        llr = compute_soft_llr(syms, "2FSK", noise_variance=0.1)
+
+        assert len(llr) == len(hard_bits), (
+            f"n_symbols={n_symbols}: LLR length {len(llr)} != "
+            f"hard-bit length {len(hard_bits)}"
+        )
+        assert len(llr) == n_symbols - 1
+
+    @pytest.mark.parametrize("n_symbols", [10, 30, 100])
+    def test_4fsk_llr_length_matches_hard_bits(self, n_symbols: int):
+        """4FSK: LLR length must equal len(hard_bits) == 2*(n_symbols - 1)."""
+        rng = np.random.default_rng(n_symbols + 1000)
+        angles = np.linspace(-1.5, 1.5, n_symbols) + rng.normal(0, 0.05, n_symbols)
+        syms = np.exp(1j * angles).astype(np.complex64)
+
+        hard_bits, _ = slice_symbols_to_bits(syms, "4FSK")
+        llr = compute_soft_llr(syms, "4FSK", noise_variance=0.1)
+
+        assert len(llr) == len(hard_bits), (
+            f"n_symbols={n_symbols}: LLR length {len(llr)} != "
+            f"hard-bit length {len(hard_bits)}"
+        )
+        assert len(llr) == 2 * (n_symbols - 1)
+
+    @pytest.mark.parametrize("n_symbols", [15, 50, 200])
+    def test_generic_fsk_llr_length_matches_hard_bits(self, n_symbols: int):
+        """Generic 'FSK' tag (routed to 2FSK path): same length guarantee."""
+        rng = np.random.default_rng(n_symbols + 2000)
+        angles = np.cumsum(rng.normal(0, 0.3, n_symbols))
+        syms = np.exp(1j * angles).astype(np.complex64)
+
+        hard_bits, _ = slice_symbols_to_bits(syms, "FSK")
+        llr = compute_soft_llr(syms, "FSK", noise_variance=0.2)
+
+        assert len(llr) == len(hard_bits), (
+            f"n_symbols={n_symbols}: LLR length {len(llr)} != "
+            f"hard-bit length {len(hard_bits)}"
+        )
+        assert len(llr) == n_symbols - 1
+
+
+class TestFskLLRSignMatchesHardBitDecision:
+    """Regression guard: FSK compute_soft_llr() sign must agree with
+    slice_symbols_to_bits() hard decisions, across 2FSK, 4FSK, and generic
+    FSK, for multiple signal lengths.
+
+    Sign convention (from compute_soft_llr() docstring):
+        LLR = log(P(bit=0|y) / P(bit=1|y))
+        Positive LLR → bit likely 0
+        Negative LLR → bit likely 1
+
+    Therefore: np.sign(llr[i]) == (1 - 2 * hard_bits[i])
+        hard_bit=0  →  1 - 0  = +1  →  sign(llr) = +1  (LLR > 0)
+        hard_bit=1  →  1 - 2  = -1  →  sign(llr) = -1  (LLR < 0)
+
+    The length-only test in TestFskComputeSoftLLRHardBitLength would NOT have
+    caught the original bug: the old fallback also returned a length-matching
+    array with inverted signs, which would silently feed wrong-polarity soft
+    metrics into FEC decoders.
+    """
+
+    # ---------- 2FSK ----------
+
+    @pytest.mark.parametrize("n_symbols", [10, 30, 100])
+    def test_2fsk_llr_sign_matches_hard_bit_decision(self, n_symbols: int):
+        """2FSK: sign(llr[i]) == (1 - 2*hard_bits[i]) for every non-zero LLR."""
+        rng = np.random.default_rng(n_symbols)
+        # Linearly ramped phase ensures a spread of positive & negative deviations,
+        # giving a mix of 0-bits and 1-bits for a meaningful sign check.
+        angles = np.linspace(-2.0, 2.0, n_symbols) + rng.normal(0, 0.1, n_symbols)
+        syms = np.exp(1j * angles).astype(np.complex64)
+
+        hard_bits, _ = slice_symbols_to_bits(syms, "2FSK")
+        llr = compute_soft_llr(syms, "2FSK", noise_variance=0.1)
+
+        assert len(llr) == len(hard_bits), (
+            f"n_symbols={n_symbols}: length mismatch LLR={len(llr)} hard_bits={len(hard_bits)}"
+        )
+
+        # Exclude exactly-zero LLRs (degenerate tie, sign undefined).
+        nonzero = llr != 0.0
+        if not np.any(nonzero):
+            pytest.skip(f"All LLRs are zero for n_symbols={n_symbols} — degenerate input")
+
+        expected_sign = (1 - 2 * hard_bits[nonzero].astype(np.int8))
+        actual_sign = np.sign(llr[nonzero]).astype(np.int8)
+        assert np.array_equal(actual_sign, expected_sign), (
+            f"n_symbols={n_symbols}: LLR sign mismatch.\n"
+            f"  hard_bits (subset): {hard_bits[nonzero]}\n"
+            f"  llr       (subset): {llr[nonzero]}\n"
+            f"  expected sign:      {expected_sign}\n"
+            f"  actual   sign:      {actual_sign}"
+        )
+
+    # ---------- 4FSK ----------
+
+    @pytest.mark.parametrize("n_symbols", [10, 30, 100])
+    def test_4fsk_llr_sign_matches_hard_bit_decision(self, n_symbols: int):
+        """4FSK: sign(llr[i]) == (1 - 2*hard_bits[i]) for every non-zero LLR.
+
+        4FSK emits 2 LLRs per deviation sample (MSB then LSB).  The same
+        positive=bit-0 / negative=bit-1 convention applies to both bits.
+        """
+        rng = np.random.default_rng(n_symbols + 500)
+        # Wide linear ramp ensures all four 4FSK quantile buckets are populated.
+        angles = np.linspace(-1.5, 1.5, n_symbols) + rng.normal(0, 0.05, n_symbols)
+        syms = np.exp(1j * angles).astype(np.complex64)
+
+        hard_bits, _ = slice_symbols_to_bits(syms, "4FSK")
+        llr = compute_soft_llr(syms, "4FSK", noise_variance=0.1)
+
+        assert len(llr) == len(hard_bits), (
+            f"n_symbols={n_symbols}: length mismatch LLR={len(llr)} hard_bits={len(hard_bits)}"
+        )
+
+        nonzero = llr != 0.0
+        if not np.any(nonzero):
+            pytest.skip(f"All LLRs are zero for n_symbols={n_symbols} — degenerate input")
+
+        expected_sign = (1 - 2 * hard_bits[nonzero].astype(np.int8))
+        actual_sign = np.sign(llr[nonzero]).astype(np.int8)
+        assert np.array_equal(actual_sign, expected_sign), (
+            f"n_symbols={n_symbols}: 4FSK LLR sign mismatch.\n"
+            f"  hard_bits (subset): {hard_bits[nonzero]}\n"
+            f"  llr       (subset): {llr[nonzero]}\n"
+            f"  expected sign:      {expected_sign}\n"
+            f"  actual   sign:      {actual_sign}"
+        )
+
+    # ---------- generic FSK (routed to 2FSK path) ----------
+
+    @pytest.mark.parametrize("n_symbols", [15, 50, 200])
+    def test_generic_fsk_llr_sign_matches_hard_bit_decision(self, n_symbols: int):
+        """Generic 'FSK' tag (no digit prefix): same sign guarantee as 2FSK.
+
+        slice_symbols_to_bits() routes both '2FSK' and 'FSK' through the same
+        phase-slope slicer, so compute_soft_llr() must produce the same sign
+        relationship for both tags.
+        """
+        rng = np.random.default_rng(n_symbols + 1000)
+        # Random-walk phase gives realistic FSK-like signal with mixed bits.
+        angles = np.cumsum(rng.normal(0, 0.3, n_symbols))
+        syms = np.exp(1j * angles).astype(np.complex64)
+
+        hard_bits, _ = slice_symbols_to_bits(syms, "FSK")
+        llr = compute_soft_llr(syms, "FSK", noise_variance=0.2)
+
+        assert len(llr) == len(hard_bits), (
+            f"n_symbols={n_symbols}: length mismatch LLR={len(llr)} hard_bits={len(hard_bits)}"
+        )
+
+        nonzero = llr != 0.0
+        if not np.any(nonzero):
+            pytest.skip(f"All LLRs are zero for n_symbols={n_symbols} — degenerate input")
+
+        expected_sign = (1 - 2 * hard_bits[nonzero].astype(np.int8))
+        actual_sign = np.sign(llr[nonzero]).astype(np.int8)
+        assert np.array_equal(actual_sign, expected_sign), (
+            f"n_symbols={n_symbols}: generic FSK LLR sign mismatch.\n"
+            f"  hard_bits (subset): {hard_bits[nonzero]}\n"
+            f"  llr       (subset): {llr[nonzero]}\n"
+            f"  expected sign:      {expected_sign}\n"
+            f"  actual   sign:      {actual_sign}"
+        )
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+

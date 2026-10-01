@@ -1,9 +1,10 @@
 'use client';
 
 import { useState, useRef, useEffect, DragEvent } from 'react';
-import { processFile, startAsyncProcess, pollJobStatus, decodeSignal, correlateSignal } from '@/services/api';
+import { createAnalysisSession } from '@/services/api';
 import { useRouter } from 'next/navigation';
 import Button from '@/components/base/Button';
+import { clearSignalSession, saveSignalFile, saveSignalResult, readSignalSession, writeSignalSession } from '@/services/signalStorage';
 
 interface UploadZoneProps {
   onSuccess?: (result: any) => void;
@@ -35,6 +36,10 @@ export default function UploadZone({
   const [error, setError] = useState<string | null>(null);
   const [progressPercent, setProgressPercent] = useState<number>(0);
   const [progressStage, setProgressStage] = useState<string>('');
+  const [fecScheme, setFecScheme] = useState('none');
+  const [syncWord, setSyncWord] = useState('Barker-13');
+  const [autoDetectSync, setAutoDetectSync] = useState(false);
+  const [autoDeinterleave, setAutoDeinterleave] = useState(false);
 
   // Utility function to extract sample rate from WAV file
   const getSampleRateFromWav = async (file: File): Promise<number | null> => {
@@ -166,55 +171,19 @@ export default function UploadZone({
     setProgressStage('Initializing file upload…');
 
     try {
-      let processRes;
-      if (useAsync) {
-        setProgressStage('Submitting job to background task queue…');
-        const job = await startAsyncProcess(file, sampleRate);
-        setProgressStage('Job queued. Polling execution status…');
+      const previousSession = readSignalSession();
+      if (previousSession) await clearSignalSession(previousSession.signalSessionId);
+      sessionStorage.removeItem('signalSession');
+      const signalSessionId = crypto.randomUUID();
+      await saveSignalFile(signalSessionId, file);
+      writeSignalSession({ signalSessionId, filename: file.name, fileSize: file.size, sampleRate, resultStatus: 'processing' });
 
-        processRes = await pollJobStatus(job.job_id, (status) => {
-          setProgressPercent(Math.round(status.progress * 100));
-          setProgressStage(status.stage);
-        });
-      } else {
-        setProgressStage('Processing synchronous request…');
-        processRes = await processFile(file, sampleRate);
-      }
+      setProgressStage('Running authoritative signal analysis…');
+      setProgressPercent(25);
+      const fullRes = await createAnalysisSession(file, sampleRate, { fecScheme, syncWord, autoDetectSync, autoDeinterleave });
 
-      // Fetch decode results
-      setProgressStage('Fetching decode results…');
-      const decodeRes = await decodeSignal(file, "", sampleRate);
-
-      // Fetch correlate results
-      setProgressStage('Fetching correlation results…');
-      const correlateRes = await correlateSignal(file, { sampleRate });
-
-      // Merge all results
-      const fullRes = {
-        ...processRes,
-        demodulated_bits: decodeRes.demodulated_bits,
-        demodulated_bits_count: decodeRes.demodulated_bits_count,
-        deinterleaved_bits: decodeRes.deinterleaved_bits,
-        deinterleaved_bits_count: decodeRes.deinterleaved_bits_count,
-        decoded_bits: decodeRes.decoded_bits,
-        correlate_result: correlateRes,
-      };
-
-      // Store results and navigate
-      sessionStorage.setItem('lastResult', JSON.stringify(fullRes));
-      sessionStorage.setItem('lastFileName', file.name);
-      sessionStorage.setItem('lastFileSize', String(file.size));
-
-      // Store original file as base64 for later use if size allows (sample rate re-processing)
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        try {
-          sessionStorage.setItem('lastFileBase64', reader.result?.toString() || '');
-        } catch (storageErr) {
-          console.warn('File size exceeds sessionStorage quota (~5MB); file base64 caching skipped:', storageErr);
-        }
-      };
-      reader.readAsDataURL(file);
+      await saveSignalResult(signalSessionId, fullRes);
+      writeSignalSession({ signalSessionId, filename: file.name, fileSize: file.size, sampleRate, resultStatus: 'ready' });
 
       if (onSuccess) {
         onSuccess(fullRes);
@@ -287,6 +256,16 @@ export default function UploadZone({
         <h3 className="text-ink font-geist font-weight-600 text-lg mb-4">Configuration</h3>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <label className="text-xs text-ink-faint">FEC scheme
+            <select aria-label="FEC scheme" value={fecScheme} onChange={(e) => setFecScheme(e.target.value)} disabled={loading} className="mt-2 w-full bg-canvas-elevated border border-hairline rounded-md px-3 py-2 text-sm text-ink">
+              <option value="none">None</option><option value="viterbi">Viterbi</option><option value="reed-solomon">Reed-Solomon</option><option value="concatenated">Concatenated</option><option value="ldpc">LDPC</option>
+            </select>
+          </label>
+          <label className="text-xs text-ink-faint">Sync word
+            <input aria-label="Sync word" value={syncWord} onChange={(e) => setSyncWord(e.target.value)} placeholder="e.g. Barker-13" disabled={loading} className="mt-2 w-full bg-canvas-elevated border border-hairline rounded-md px-3 py-2 text-sm text-ink" />
+          </label>
+          <label className="flex items-center gap-2 text-xs text-ink-faint"><input aria-label="Auto sync" type="checkbox" checked={autoDetectSync} onChange={(e) => setAutoDetectSync(e.target.checked)} disabled={loading} />Auto sync</label>
+          <label className="flex items-center gap-2 text-xs text-ink-faint"><input aria-label="Interleaving enabled" type="checkbox" checked={autoDeinterleave} onChange={(e) => setAutoDeinterleave(e.target.checked)} disabled={loading} />Auto deinterleave (metric gated)</label>
           <div className="sm:col-span-2">
             <label className="block text-xs font-geist-mono font-weight-500 text-ink-faint mb-2">
               Sampling Rate (Hz)

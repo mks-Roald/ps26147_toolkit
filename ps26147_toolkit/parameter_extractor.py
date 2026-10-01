@@ -504,7 +504,7 @@ def estimate_baud_rate(
     if len(signal) < 64 or fs <= 0:
         return 0.0
 
-    max_samples = 65536
+    max_samples = 262144
     sig_chunk = signal[:max_samples] if len(signal) > max_samples else signal
 
     # For real signals, obtain complex analytic signal via Hilbert transform
@@ -557,6 +557,70 @@ def estimate_baud_rate(
     # regardless of the data's bit pattern.
     conj_prod = sig_bb[1:] * np.conj(sig_bb[:-1])
     dphi = np.angle(conj_prod)
+
+    # Direct binary FSK has two sustained instantaneous-frequency levels.
+    # The phase-difference magnitude marks *data changes*, so its FFT is a
+    # random transition spectrum rather than a baud clock. Recover the clock
+    # from the common sample grid of changes in the signed phase slope instead.
+    # This also works when modulation is unknown (as in automatic extraction).
+    phase_levels = np.quantile(dphi, [0.1, 0.5, 0.9])
+    phase_span = float(phase_levels[2] - phase_levels[0])
+    split_level = 0.5 * float(phase_levels[0] + phase_levels[2])
+    low_phase = dphi[dphi <= split_level]
+    high_phase = dphi[dphi > split_level]
+    two_level = False
+    if len(low_phase) > 0 and len(high_phase) > 0:
+        low_center = float(np.median(low_phase))
+        high_center = float(np.median(high_phase))
+        separation = high_center - low_center
+        residual = np.concatenate((np.abs(low_phase - low_center), np.abs(high_phase - high_center)))
+        two_level = (
+            separation > 0.02
+            and max(len(low_phase), len(high_phase)) < 0.8 * len(dphi)
+            and float(np.quantile(residual, 0.8)) < 0.12 * separation
+        )
+    if two_level and phase_span < 1.0:
+        smooth_dphi = np.convolve(dphi, np.ones(5) / 5.0, mode="same")
+        slope_change = np.abs(np.diff(smooth_dphi))
+        edge_threshold = max(0.01, 0.12 * phase_span)
+        edge_samples = np.flatnonzero(slope_change > edge_threshold)
+
+        # Collapse the few samples of analytic-signal ringing around each edge.
+        if len(edge_samples) >= 8:
+            groups = np.split(edge_samples, np.flatnonzero(np.diff(edge_samples) > 6) + 1)
+            edge_positions = np.array([int(np.round(np.mean(g))) for g in groups if len(g)])
+            if bandwidth is not None and bandwidth > 0:
+                grid_min_baud = max(10.0, bandwidth * 0.05, fs * 0.001)
+                grid_max_baud = min(fs * 0.495, bandwidth * 1.5)
+            else:
+                grid_min_baud = max(10.0, fs * 0.002)
+                grid_max_baud = fs * 0.495
+            if grid_min_baud >= grid_max_baud:
+                grid_min_baud, grid_max_baud = 10.0, fs * 0.495
+            min_period = max(2, int(fs / grid_max_baud))
+            max_period = min(len(dphi) - 1, int(fs / grid_min_baud))
+            if len(edge_positions) >= 8 and max_period >= min_period:
+                periods = np.arange(min_period, max_period + 1)
+                scores = np.zeros(len(periods), dtype=float)
+                for i, period in enumerate(periods):
+                    residues = edge_positions % period
+                    ordered = np.sort(residues)
+                    circular = np.concatenate((ordered, ordered + period))
+                    left = 0
+                    best_count = 0
+                    for right in range(len(circular)):
+                        while circular[right] - circular[left] > 6:
+                            left += 1
+                        best_count = max(best_count, min(right - left + 1, len(ordered)))
+                    scores[i] = best_count / len(ordered)
+                peak_score = float(np.max(scores))
+                if peak_score >= 0.85:
+                    # Submultiples also align with the edge grid. Prefer the
+                    # largest period with essentially the best phase alignment.
+                    eligible = periods[scores >= peak_score - 0.03]
+                    clock_period = int(eligible[-1])
+                    return float(fs / clock_period)
+
     phase_diff = np.abs(np.diff(dphi))
     # np.diff shrinks by 1; pad to align with mag_diff length for the sum below
     if len(phase_diff) > 0:
@@ -697,7 +761,7 @@ def estimate_baud_rate(
         # If they agree within 5%, take FFT refined estimate (better frequency resolution)
         if abs(ac_baud - fft_baud) / max(ac_baud, fft_baud) < 0.06:
             return float(fft_baud)
-        # If FFT picked a 2x harmonic of AC baud, trust AC baud
+        # A 2x FFT harmonic is not the baud fundamental; trust the autocorrelation period.
         if abs(fft_baud - 2.0 * ac_baud) / (2.0 * ac_baud) < 0.06:
             return float(ac_baud)
         # Otherwise prefer FFT estimate if strong, else AC baud
@@ -741,7 +805,7 @@ _BW_CONTOUR_DB = {
     "4FSK": 25,
 }
 # Fallback contour used when the modulation is unknown.
-_DEFAULT_BW_CONTOUR_DB = 25
+_DEFAULT_BW_CONTOUR_DB = 20
 
 
 def _canonical_class(modulation: Optional[str]) -> str:
@@ -786,7 +850,12 @@ def estimate_bandwidth_ladder(
 def select_bandwidth_contour(modulation: Optional[str]) -> int:
     """Return the calibrated contour dB for a modulation class (positive dB)."""
     cls = _canonical_class(modulation)
-    return int(_BW_CONTOUR_DB[cls]) if cls else _DEFAULT_BW_CONTOUR_DB
+    if cls:
+        return int(_BW_CONTOUR_DB[cls])
+    # Fallback for generic FSK
+    if modulation and "FSK" in modulation.upper():
+        return 10  # reduced from 20 to avoid noise false alarms
+    return _DEFAULT_BW_CONTOUR_DB
 
 
 def extract_signal_parameters(

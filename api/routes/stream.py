@@ -1,191 +1,145 @@
+"""Live physically-based SDR waveform simulator and analyzer."""
 import asyncio
 import json
 import time
+
 import numpy as np
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from ps26147_toolkit import classifier, parameter_extractor, feature_extractor
+
+from ps26147_toolkit.analysis import analyze_signal
+from ps26147_toolkit.feature_extractor import compute_psd, rrc_filter
+from ps26147_toolkit.demodulator import demodulate_signal
 
 router = APIRouter()
+_LEVELS = np.arange(-7, 8, 2)
 
-# Constellation dictionaries for fast SDR simulation
-_MOD_MAP = {
-    "BPSK": np.array([-1.0, 1.0], dtype=np.complex64),
-    "QPSK": np.array([-1-1j, -1+1j, 1-1j, 1+1j], dtype=np.complex64) / np.sqrt(2),
-    "8PSK": np.exp(1j * np.arange(8) * (2 * np.pi / 8)).astype(np.complex64),
-    "16QAM": (
-        np.tile(np.array([-3, -1, 1, 3]), 4) + 1j * np.repeat(np.array([-3, -1, 1, 3]), 4)
-    ).astype(np.complex64) / np.sqrt(10),
-    "64QAM": (
-        np.tile(np.arange(-7, 8, 2), 8) + 1j * np.repeat(np.arange(-7, 8, 2), 8)
-    ).astype(np.complex64) / np.sqrt(42),
-}
 
-def generate_sdr_frame(
-    modulation: str = "QPSK",
-    snr_db: float = 20.0,
-    baud_rate: float = 50000.0,
-    fs: float = 1000000.0,
-    cfo_hz: float = 0.0,
-    n_samples: int = 2048,
-    frame_idx: int = 0,
-) -> dict:
-    """Synthesize an active SDR baseband signal frame with channel impairments."""
-    mod_upper = modulation.upper().replace("-", "").replace(" ", "")
-    sps = int(round(fs / max(100.0, baud_rate)))
-    sps = max(2, min(sps, 64))
-    n_symbols = n_samples // sps
+def _symbols(modulation: str, n: int, rng: np.random.Generator) -> np.ndarray:
+    name = modulation.upper().replace("-", "").replace(" ", "")
+    if name == "BPSK":
+        return rng.choice([-1., 1.], n).astype(np.complex64)
+    if name == "QPSK":
+        # Match the classifier corpus: independent equiprobable I/Q signs.
+        return ((rng.choice([-1., 1.], n) + 1j * rng.choice([-1., 1.], n)) / np.sqrt(2)).astype(np.complex64)
+    if name == "8PSK":
+        return np.exp(1j * rng.integers(0, 8, n) * np.pi / 4).astype(np.complex64)
+    if name == "16QAM":
+        return ((rng.choice([-3., -1., 1., 3.], n) + 1j * rng.choice([-3., -1., 1., 3.], n)) / np.sqrt(10)).astype(np.complex64)
+    if name == "64QAM":
+        return ((rng.choice(_LEVELS, n) + 1j * rng.choice(_LEVELS, n)) / np.sqrt(42)).astype(np.complex64)
+    raise ValueError(f"Unsupported modulation: {modulation}")
 
-    if mod_upper in _MOD_MAP:
-        constellation = _MOD_MAP[mod_upper]
-        sym_indices = np.random.randint(0, len(constellation), size=n_symbols)
-        symbols = constellation[sym_indices]
-        # Upsample & apply simple pulse shaping
-        sig = np.repeat(symbols, sps)
-    elif "FSK" in mod_upper:
-        # FSK modulation
-        m_ary = 4 if "4" in mod_upper else 2
-        f_dev = baud_rate * 0.5
-        bits = np.random.randint(0, m_ary, size=n_symbols)
-        freq_offsets = (bits - (m_ary - 1) / 2.0) * (2 * f_dev / (m_ary - 1))
-        freq_seq = np.repeat(freq_offsets, sps)
-        phase = 2 * np.pi * np.cumsum(freq_seq) / fs
-        sig = np.exp(1j * phase).astype(np.complex64)
+
+def _waveform(modulation: str, baud_rate: float, fs: float, n_samples: int, rng: np.random.Generator):
+    sps = max(2, min(64, int(round(fs / baud_rate))))
+    n_symbols = int(np.ceil(n_samples / sps)) + 8
+    name = modulation.upper().replace("-", "").replace(" ", "")
+    if name in {"BPSK", "QPSK", "8PSK", "16QAM", "64QAM"}:
+        syms = _symbols(name, n_symbols, rng)
+        up = np.zeros(n_symbols * sps, dtype=np.complex64)
+        up[::sps] = syms
+        base = np.convolve(up, rrc_filter(49, .35, sps), mode="same")[:n_samples]
+    elif name in {"2FSK", "4FSK"}:
+        order = 2 if name == "2FSK" else 4
+        idx = rng.integers(0, order, n_symbols)
+        tones = (idx - (order - 1) / 2) * baud_rate
+        offsets = np.repeat(tones, sps)[:n_samples]
+        base = np.exp(1j * (2 * np.pi * np.cumsum(offsets) / fs)).astype(np.complex64)
     else:
-        # Fallback QPSK
-        constellation = _MOD_MAP["QPSK"]
-        sym_indices = np.random.randint(0, len(constellation), size=n_symbols)
-        symbols = constellation[sym_indices]
-        sig = np.repeat(symbols, sps)
+        raise ValueError(f"Unsupported modulation: {modulation}")
+    return base, sps
 
-    # Pad or truncate to exact n_samples
-    if len(sig) < n_samples:
-        sig = np.pad(sig, (0, n_samples - len(sig)))
-    else:
-        sig = sig[:n_samples]
 
-    # Carrier Frequency Offset & phase drift
+def generate_sdr_frame(modulation="QPSK", snr_db=20., baud_rate=50000., fs=1e6,
+                       cfo_hz=0., n_samples=2048, frame_idx=0, seed=None,
+                       last_noisy_frame=None):
+    """Generate one channel-impaired frame and run the shared signal analysis with 4096-sample window."""
+    rng = np.random.default_rng(seed)
+    signal, sps = _waveform(modulation, baud_rate, fs, n_samples, rng)
+    phase = rng.uniform(-np.pi, np.pi)
     t = np.arange(n_samples) / fs
-    if abs(cfo_hz) > 0.0:
-        sig = sig * np.exp(1j * 2 * np.pi * cfo_hz * t)
+    signal = signal * np.exp(1j * (phase + 2 * np.pi * cfo_hz * t))
+    p = np.mean(np.abs(signal) ** 2)
+    noise_power = p / (10 ** (snr_db / 10))
+    noisy = signal + np.sqrt(noise_power / 2) * (rng.standard_normal(n_samples) + 1j * rng.standard_normal(n_samples))
 
-    # Add AWGN noise according to target SNR
-    sig_power = np.mean(np.abs(sig) ** 2)
-    snr_linear = 10.0 ** (snr_db / 10.0)
-    noise_power = sig_power / max(1e-6, snr_linear)
-    noise = np.sqrt(noise_power / 2.0) * (
-        np.random.randn(n_samples) + 1j * np.random.randn(n_samples)
-    )
-    noisy_sig = sig + noise
+    if last_noisy_frame is None:
+        return {"type": "buffer_fill", "noisy": noisy}
 
-    # Parameter & Spectral Extractions
-    freqs, psd = feature_extractor.compute_psd(noisy_sig, fs, nperseg=min(256, n_samples))
-    psd_db = 10.0 * np.log10(np.maximum(psd, 1e-15))
+    window4096 = np.concatenate((last_noisy_frame, noisy))
 
-    # Fast Modulation Classifier Prediction
-    clf = classifier.ModulationClassifier()
-    clf_res = clf.predict_with_confidence(noisy_sig, fs=fs)
+    # The canonical analysis performs parameter estimation, baseband conversion,
+    # and CNN authoritative prediction (with RF fallback).
+    analysis = analyze_signal(window4096, fs, include_diagnostics=False)
+    detected = analysis.classification["modulation"]
+    params = analysis.parameters
+    detected_baud = float(params.get("baud_rate", 0) or 0)
 
-    # Constellation subset (150 points)
-    c_step = max(1, len(noisy_sig) // 150)
-    c_subset = noisy_sig[::c_step][:150]
-    constellation_pts = [
-        {"i": round(float(pt.real), 4), "q": round(float(pt.imag), 4)}
-        for pt in c_subset
-    ]
+    demod = demodulate_signal(analysis.baseband_signal, fs, modulation,
+                              center_freq=0., baud_rate=baud_rate)
+    symbols = np.asarray(demod.get("symbols", []))
+    if "FSK" in modulation.upper():
+        freq = np.angle(window4096[1:] * np.conj(window4096[:-1])) * fs / (2 * np.pi)
+        view = [{"sample": int(i), "frequency": round(float(v), 1)} for i, v in enumerate(freq[::max(1, len(freq)//150)][:150])]
+        constellation = []
+    else:
+        view = []
+        take = symbols[::max(1, len(symbols)//150)][:150]
+        constellation = [{"i": round(float(v.real), 4), "q": round(float(v.imag), 4)} for v in take]
 
-    # Waveform subset (100 points)
-    w_step = max(1, len(noisy_sig) // 100)
-    wave_pts = [round(float(v.real), 4) for v in noisy_sig[::w_step][:100]]
-
-    # PSD subset (60 bins)
-    p_step = max(1, len(freqs) // 60)
-    psd_pts = [
-        {"freq": round(float(f)), "psd": round(float(p), 2)}
-        for f, p in zip(freqs[::p_step], psd_db[::p_step])
-    ]
-
+    freqs, psd = compute_psd(window4096, fs, nperseg=min(256, len(window4096)))
+    psd_db = 10 * np.log10(np.maximum(psd, 1e-15))
+    idx = np.arange(0, len(freqs), max(1, len(freqs)//60))[:60]
+    wave = window4096.real[::max(1, len(window4096)//100)][:100]
     return {
-        "type": "sdr_frame",
-        "frame_idx": frame_idx,
-        "timestamp": time.time(),
-        "configured_modulation": modulation,
-        "detected_modulation": clf_res["modulation"],
-        "confidence": round(float(clf_res["confidence"]), 3),
-        "snr_db": round(float(snr_db), 1),
-        "baud_rate": round(float(baud_rate), 1),
-        "sample_rate": round(float(fs), 1),
-        "constellation": constellation_pts,
-        "waveform": wave_pts,
-        "psd": psd_pts,
+        "type": "sdr_frame", "frame_idx": frame_idx, "timestamp": time.time(),
+        "configured_modulation": modulation, "detected_modulation": detected,
+        "classification_correct": detected == modulation,
+        "confidence": round(float(analysis.classification.get("confidence", 0)), 3),
+        "snr_db": float(snr_db), "configured_snr": float(snr_db),
+        "estimated_snr": params.get("snr_db"), "baud_rate": float(baud_rate),
+        "configured_baud": float(baud_rate), "estimated_baud": detected_baud,
+        "configured_cfo": float(cfo_hz), "estimated_cfo": params.get("center_frequency_hz"),
+        "sample_rate": float(fs), "constellation": constellation,
+        "frequency_states": view, "visualization": "frequency" if "FSK" in modulation.upper() else "constellation",
+        "waveform": [round(float(v), 4) for v in wave],
+        "psd": [{"freq": round(float(freqs[i])), "psd": round(float(psd_db[i]), 2)} for i in idx],
+        "current_frame": noisy,
     }
 
 
 @router.websocket("/live")
 async def sdr_live_stream_endpoint(websocket: WebSocket):
-    """Real-time WebSocket streaming endpoint for SDR RF signal visualization."""
     await websocket.accept()
-    
-    # Default stream configuration
-    config = {
-        "modulation": "QPSK",
-        "snr_db": 22.0,
-        "baud_rate": 50000.0,
-        "fs": 1000000.0,
-        "cfo_hz": 500.0,
-        "is_paused": False,
-        "fps": 15,
-    }
-
-    frame_idx = 0
-
-    async def client_listener():
-        """Listen for client control messages (e.g. changing modulation or SNR on the fly)."""
+    config = {"modulation": "QPSK", "snr_db": 22., "baud_rate": 50000., "fs": 1e6, "cfo_hz": 500., "is_paused": False, "fps": 12}
+    async def listener():
         while True:
             try:
-                data_text = await websocket.receive_text()
-                msg = json.loads(data_text)
-                action = msg.get("action")
-                if action == "configure":
-                    if "modulation" in msg:
-                        config["modulation"] = str(msg["modulation"])
-                    if "snr_db" in msg:
-                        config["snr_db"] = float(msg["snr_db"])
-                    if "baud_rate" in msg:
-                        config["baud_rate"] = float(msg["baud_rate"])
-                    if "cfo_hz" in msg:
-                        config["cfo_hz"] = float(msg["cfo_hz"])
-                    if "fps" in msg:
-                        config["fps"] = max(1, min(30, int(msg["fps"])))
-                elif action == "pause":
-                    config["is_paused"] = True
-                elif action == "resume":
-                    config["is_paused"] = False
-            except (WebSocketDisconnect, asyncio.CancelledError):
-                break
-            except Exception:
-                pass
-
-    listener_task = asyncio.create_task(client_listener())
-
+                msg = json.loads(await websocket.receive_text())
+                if msg.get("action") == "configure":
+                    for key in ("modulation", "snr_db", "baud_rate", "cfo_hz"):
+                        if key in msg: config[key] = str(msg[key]) if key == "modulation" else float(msg[key])
+                    if "fps" in msg: config["fps"] = max(1, min(30, int(msg["fps"])))
+                elif msg.get("action") == "pause": config["is_paused"] = True
+                elif msg.get("action") == "resume": config["is_paused"] = False
+            except (WebSocketDisconnect, asyncio.CancelledError): break
+            except Exception: pass
+    task = asyncio.create_task(listener())
+    frame = 0
+    last_noisy_frame = None
     try:
         while True:
             if not config["is_paused"]:
-                frame = generate_sdr_frame(
-                    modulation=config["modulation"],
-                    snr_db=config["snr_db"],
-                    baud_rate=config["baud_rate"],
-                    fs=config["fs"],
-                    cfo_hz=config["cfo_hz"],
-                    frame_idx=frame_idx,
-                )
-                await websocket.send_json(frame)
-                frame_idx += 1
+                payload = {k: v for k, v in config.items() if k != "is_paused" and k != "fps"}
+                result = await asyncio.to_thread(generate_sdr_frame, **payload, frame_idx=frame, last_noisy_frame=last_noisy_frame)
+                if result.get("type") == "buffer_fill":
+                    last_noisy_frame = result["noisy"]
+                    await asyncio.sleep(1 / max(1, config["fps"]))
+                    continue
 
-            # Control frame rate
-            sleep_time = 1.0 / max(1, config["fps"])
-            await asyncio.sleep(sleep_time)
-
-    except (WebSocketDisconnect, asyncio.CancelledError):
-        pass
-    finally:
-        listener_task.cancel()
+                last_noisy_frame = result.pop("current_frame")
+                await websocket.send_json(result)
+                frame += 1
+            await asyncio.sleep(1 / max(1, config["fps"]))
+    except (WebSocketDisconnect, asyncio.CancelledError): pass
+    finally: task.cancel()

@@ -6,16 +6,15 @@ import numpy as np
 from pathlib import Path
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, accuracy_score
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 from scipy.io import loadmat
 
-from ps26147_toolkit.classifier import (
-    ModulationClassifier,
-    extract_features,
-    generate_synthetic_dataset,
-)
+from ps26147_toolkit.classifier import extract_features, generate_synthetic_dataset
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "data"
-MODEL_PATH = Path(__file__).resolve().parents[1] / "model.pkl"
+MODEL_PATH = Path(__file__).resolve().parents[1] / "model.joblib"
 
 
 def load_radio_ml_samples():
@@ -69,17 +68,25 @@ def main():
         X, y, test_size=0.20, random_state=42, stratify=y
     )
 
-    clf = ModulationClassifier(model_path=str(MODEL_PATH))
     print("Training Random Forest classifier pipeline...")
-    clf.train(X_train, y_train)
+    pipeline = Pipeline([
+        ("scaler", StandardScaler()),
+        ("rf", RandomForestClassifier(
+            n_estimators=150, max_depth=14, random_state=42,
+            class_weight="balanced",
+        )),
+    ])
+    pipeline.fit(X_train, y_train)
 
-    y_pred = clf.pipeline.predict(X_test)
+    y_pred = pipeline.predict(X_test)
     acc = accuracy_score(y_test, y_pred)
     print(f"\nTest Accuracy: {acc * 100:.2f}%\n")
     print(classification_report(y_test, y_pred))
 
     print(f"Saving trained model to {MODEL_PATH}")
-    clf.save(str(MODEL_PATH))
+    if X.shape[1] != 15:
+        raise ValueError(f"Expected 15 current features, got {X.shape[1]}")
+    joblib.dump(pipeline, str(MODEL_PATH))
     print("Training complete.")
 
 

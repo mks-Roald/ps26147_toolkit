@@ -16,6 +16,13 @@ export interface WaterfallData {
   power_db: number[][];
 }
 
+export interface FskVisualizationData {
+  instantaneous_frequency: number[];
+  recovered_frequency_states: number[];
+  symbol_frequency_values: number[];
+  frequency_state_count: number;
+}
+
 export interface ProcessResult {
   modulation: string;
   confidence: number;
@@ -29,7 +36,11 @@ export interface ProcessResult {
   duration_sec: number;
   sample_rate: number;
   waveform_data: number[];
+  recovered_symbols?: ConstellationPoint[];
   constellation_data?: ConstellationPoint[];
+  constellation_metadata?: { representation: string; symbol_rate?: number; timing_recovery_used: boolean; carrier_recovery_used: boolean };
+  sync_metadata?: { offset?: number; confidence?: number; method?: string; word?: string };
+  fsk_visualization_data?: FskVisualizationData;
   psd_data?: PsdPoint[];
   waterfall_data?: WaterfallData;
   demodulated_bits?: number[];
@@ -37,7 +48,34 @@ export interface ProcessResult {
   deinterleaved_bits?: number[];
   deinterleaved_bits_count?: number;
   decoded_bits?: number[];
+  decoded_hex?: string;
+  decoded_ascii?: string;
+  synchronized_bits?: number[];
+  fec_ran?: boolean;
+  fec_decoder_result?: Record<string, any>;
+  errors_corrected?: number;
+  sync_method?: string;
+  sync_confidence?: number;
+  deinterleaver_method?: string;
+  demodulation_quality?: Record<string, number>;
   correlate_result?: CorrelateResult;
+  session_id?: string;
+  pipeline_stages?: Record<string, string>;
+  classifier_probabilities?: Record<string, number>;
+  parameter_confidence?: Record<string, number>;
+  timing_quality?: number;
+  carrier_quality?: number;
+  evm_db?: number;
+  fec_scheme?: string;
+}
+
+export async function createAnalysisSession(file: File, sampleRate = 1000000, options: { fecScheme?: string; syncWord?: string; autoDetectSync?: boolean; autoDeinterleave?: boolean } = {}): Promise<ProcessResult> {
+  const form = new FormData(); form.append("file", file);
+  const params = new URLSearchParams({ fs: String(sampleRate), fec_scheme: options.fecScheme || "none", auto_detect_sync: String(options.autoDetectSync ?? true), auto_deinterleave: String(options.autoDeinterleave ?? false) });
+  if (options.syncWord) params.set("sync_word", options.syncWord);
+  const res = await fetch(`${API_BASE}/process/session?${params}`, { method: "POST", body: form });
+  if (!res.ok) throw new Error(`API error (${res.status}): ${await res.text()}`);
+  return res.json();
 }
 
 export interface ClassifyResult {
@@ -57,6 +95,8 @@ export interface DecodeResult {
   fec_scheme?: string;
   decoded_bits_count: number;
   decoded_bits: number[];
+  decoded_hex?: string;
+  decoded_ascii?: string;
   demodulated_bits?: number[];
   demodulated_bits_count?: number;
   deinterleaved_bits?: number[];
@@ -65,6 +105,15 @@ export interface DecodeResult {
   deinterleaver_params?: Record<string, any>;
   deinterleaver_entropy?: number;
   deinterleaver_baseline_entropy?: number;
+  synchronized_bits?: number[];
+  fec_ran?: boolean;
+  fec_decoder_result?: Record<string, any>;
+  errors_corrected?: number;
+  demodulation_quality?: Record<string, number>;
+  sync_method?: string;
+  sync_confidence?: number;
+  center_frequency_hz?: number;
+  baud_rate?: number;
 }
 
 export interface CorrelatedFrame {
@@ -210,11 +259,16 @@ export async function classifySignal(file: File, sampleRate: number = 1000000): 
 export async function decodeSignal(
   file: File,
   fecScheme: string = "none",
-  sampleRate: number = 1000000
+  sampleRate: number = 1000000,
+  options: { syncWord?: string; autoDetectSync?: boolean; autoDeinterleave?: boolean } = {}
 ): Promise<DecodeResult> {
+  const params = new URLSearchParams({ fec_scheme: fecScheme || "none", fs: sampleRate.toString() });
+  if (options.syncWord) params.set("sync_word", options.syncWord);
+  params.set("auto_detect_sync", String(options.autoDetectSync ?? false));
+  params.set("auto_deinterleave", String(options.autoDeinterleave ?? false));
   const form = new FormData();
   form.append("file", file);
-  const res = await fetch(`${API_BASE}/decode/?fec_scheme=${fecScheme}&fs=${sampleRate}`, {
+  const res = await fetch(`${API_BASE}/decode/?${params.toString()}`, {
     method: "POST",
     body: form,
   });
