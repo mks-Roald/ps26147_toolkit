@@ -183,6 +183,8 @@ def extract_instantaneous_features(signal: np.ndarray, fs: float = 1000000.0) ->
         "fsk_persistence": fsk_persistence,
         "kurtosis_env": kurtosis_env,
         "inst_freq_filtered": inst_freq_filt,
+    }
+
 # PAPR (Peak-to-Average Power Ratio) feature
 def compute_papr(signal: np.ndarray) -> float:
     power = np.abs(signal) ** 2

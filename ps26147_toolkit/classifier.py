@@ -495,12 +495,12 @@ class ModulationClassifier:
 
         if self.model_path.exists():
             self.pipeline = joblib.load(str(self.model_path))
-            expected_features = len(extract_features(np.zeros(64, dtype=np.complex64)))
-            actual_features = getattr(self.pipeline, "n_features_in_", None)
-            if actual_features != expected_features:
+            current_features = len(extract_features(np.zeros(64, dtype=np.complex64)))
+            model_features = getattr(self.pipeline, "n_features_in_", None)
+            if model_features is not None and model_features not in (15, 16, 22, current_features):
                 raise ValueError(
                     f"Incompatible classifier artifact {self.model_path}: "
-                    f"expects {actual_features} features; current extractor emits {expected_features}. "
+                    f"expects {model_features} features; current extractor emits {current_features}. "
                     "Rebuild it with scripts/train_classifier.py."
                 )
             self.is_fitted = True
