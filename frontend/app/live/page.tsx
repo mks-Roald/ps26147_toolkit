@@ -204,7 +204,7 @@ export default function LiveStreamPage() {
             {currentFrame ? `${(currentFrame.configured_baud / 1000).toFixed(1)} / ${(currentFrame.estimated_baud / 1000).toFixed(1)} kBd` : '—'}
           </p>
           <p className="text-xs font-geist-mono text-ink-faint mt-2">
-            Fs: {currentFrame ? `${(currentFrame.sample_rate / 1e6).toFixed(1)} MS/s · CFO ${currentFrame.configured_cfo.toFixed(0)} / ${currentFrame.estimated_cfo == null ? '—' : currentFrame.estimated_cfo.toFixed(0)} Hz` : '—'}
+            Fs: {currentFrame ? `${(currentFrame.sample_rate / 1e6).toFixed(1)} MS/s · CFO ${currentFrame.configured_cfo.toFixed(0)} Hz` : '—'}
           </p>
         </Card>
 
@@ -242,10 +242,32 @@ export default function LiveStreamPage() {
               </svg> : <ResponsiveContainer width="100%" height="100%">
                 <ScatterChart margin={{ top: 10, right: 10, bottom: 10, left: 10 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                  <XAxis type="number" dataKey="i" domain={[-2, 2]} tick={{ fill: '#64748b', fontSize: 10 }} />
-                  <YAxis type="number" dataKey="q" domain={[-2, 2]} tick={{ fill: '#64748b', fontSize: 10 }} />
-                  <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', fontSize: '12px', color: '#e2e8f0' }} />
-                  <Scatter data={constellationData} fill="#00f2fe" shape="circle" isAnimationActive={false} />
+                  <XAxis
+                    type="number"
+                    dataKey="i"
+                    domain={[-2, 2]}
+                    tick={{ fill: '#64748b', fontSize: 10 }}
+                  />
+                  <YAxis
+                    type="number"
+                    dataKey="q"
+                    domain={[-2, 2]}
+                    tick={{ fill: '#64748b', fontSize: 10 }}
+                  />
+                  {/* Tooltip hata diya hai RF cloud se taaki browser crash na ho */}
+                  <Scatter
+                    data={constellationData}
+                    isAnimationActive={false}
+                    shape={(props: any) => (
+                      <circle
+                        cx={props.cx}
+                        cy={props.cy}
+                        r={1.5}
+                        fill="#00f2fe"
+                        opacity={0.6}
+                      />
+                    )}
+                  />
                 </ScatterChart>
               </ResponsiveContainer>}
             </div>
