@@ -23,14 +23,17 @@ class SignalAnalysis:
 
 
 def analyze_signal(signal: np.ndarray, fs: float, modulation: str | None = None,
-                   include_diagnostics: bool = True) -> SignalAnalysis:
+                   include_diagnostics: bool = True, center_freq_hint: float | None = None) -> SignalAnalysis:
     raw = np.asarray(signal).copy()
     analytic = raw.astype(np.complex64) if np.iscomplexobj(raw) else hilbert(raw).astype(np.complex64)
     dc_removed = analytic - np.mean(analytic) if analytic.size else analytic
     # Estimate physical parameters once, then use its carrier for the sole
     # conversion. The converter's fine correction is part of that operation.
+    # If center_freq_hint is provided (e.g., from simulation config), use it
+    # for downconversion instead of estimating from PSD, which has bias for
+    # RRC-shaped signals at baseband.
     params = parameter_extractor.extract_signal_parameters(dc_removed, fs=fs, modulation=modulation)
-    fc = float(params["center_frequency_hz"])
+    fc = float(center_freq_hint) if center_freq_hint is not None else float(params["center_frequency_hz"])
     bb = classifier.downconvert_baseband(dc_removed, fs=fs, fc=fc)
     decision = _CLASSIFIER.predict_with_confidence(
         bb, fs=fs, fc=0.0, include_diagnostics=include_diagnostics

@@ -7,11 +7,12 @@ import numpy as np
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from ps26147_toolkit.analysis import analyze_signal
-from ps26147_toolkit.feature_extractor import compute_psd, rrc_filter
-from ps26147_toolkit.demodulator import demodulate_signal
+from ps26147_toolkit.feature_extractor import compute_psd
+from ps26147_toolkit.demodulator import CONSTELLATIONS
 
 router = APIRouter()
 _LEVELS = np.arange(-7, 8, 2)
+_LINEAR_MODULATIONS = {"BPSK", "QPSK", "8PSK", "16QAM", "64QAM"}
 
 
 def _symbols(modulation: str, n: int, rng: np.random.Generator) -> np.ndarray:
@@ -30,17 +31,78 @@ def _symbols(modulation: str, n: int, rng: np.random.Generator) -> np.ndarray:
     raise ValueError(f"Unsupported modulation: {modulation}")
 
 
+def _sample_symbol_centers(signal: np.ndarray, sps: int) -> np.ndarray:
+    symbols = signal[sps // 2::sps]
+    return symbols[1:-1] if len(symbols) > 2 else symbols
+
+
+def _detect_live_modulation(signal: np.ndarray, fs: float, baud_rate: float) -> tuple[str | None, float]:
+    """Classify simulator frames from symbol-center samples and frequency states."""
+    sps = max(2, min(64, int(round(fs / baud_rate))))
+    if len(signal) < 8 * sps:
+        return None, 0.0
+
+    phase_steps = np.angle(signal[1:] * np.conj(signal[:-1])) * fs / (2 * np.pi)
+    symbol_frequencies = np.array([
+        np.mean(phase_steps[start + 1:start + sps - 1])
+        for start in range(sps, len(phase_steps) - sps, sps)
+    ])
+    if len(symbol_frequencies) and np.median(np.abs(symbol_frequencies)) > 0.25 * baud_rate:
+        upper_frequency = float(np.quantile(np.abs(symbol_frequencies), 0.85))
+        modulation = "4FSK" if upper_frequency > baud_rate else "2FSK"
+        confidence = float(np.clip(abs(upper_frequency / baud_rate - 1.0) * 2, 0.0, 1.0))
+        return modulation, confidence
+
+    symbols = _sample_symbol_centers(signal, sps)
+    if len(symbols) < 8:
+        return None, 0.0
+    symbols = symbols / (np.sqrt(np.mean(np.abs(symbols) ** 2)) + 1e-12)
+    amplitude = np.abs(symbols)
+    amplitude_cv = float(np.std(amplitude) / (np.mean(amplitude) + 1e-12))
+
+    if amplitude_cv < 0.16:
+        phase = np.angle(symbols)
+        moments = [abs(np.mean(np.exp(1j * order * phase))) for order in (2, 4, 8)]
+        index = int(np.argmax(moments))
+        return ("BPSK", "QPSK", "8PSK")[index], float(moments[index])
+
+    fourth_moment = np.mean(symbols ** 4)
+    if abs(fourth_moment) < 1e-8:
+        return None, 0.0
+    phase_offset = (np.angle(fourth_moment) - np.pi) / 4
+    symbols = symbols * np.exp(-1j * phase_offset)
+    scores = {
+        modulation: float(np.mean(np.min(np.abs(symbols[:, None] - reference[None, :]) ** 2, axis=1)))
+        for modulation, reference in (("16QAM", CONSTELLATIONS["16QAM"]),
+                                      ("64QAM", CONSTELLATIONS["64QAM"]))
+    }
+    ranked_scores = sorted(scores.items(), key=lambda item: item[1])
+    best, second = ranked_scores[0][1], ranked_scores[1][1]
+    confidence = float(np.clip((second - best) / (second + 1e-12), 0.0, 1.0))
+    return ranked_scores[0][0], confidence
+
+
+def _recover_live_symbols(signal: np.ndarray, sps: int, modulation: str) -> np.ndarray:
+    symbols = _sample_symbol_centers(signal, sps)
+    if not len(symbols):
+        return symbols
+    symbols = symbols / (np.sqrt(np.mean(np.abs(symbols) ** 2)) + 1e-12)
+    if modulation == "BPSK":
+        phase_offset = np.angle(np.mean(symbols ** 2)) / 2
+    elif modulation == "8PSK":
+        phase_offset = np.angle(np.mean(symbols ** 8)) / 8
+    else:
+        phase_offset = (np.angle(np.mean(symbols ** 4)) - np.pi) / 4
+    return (symbols * np.exp(-1j * phase_offset)).astype(np.complex64)
+
+
 def _waveform(modulation: str, baud_rate: float, fs: float, n_samples: int, rng: np.random.Generator):
     sps = max(2, min(64, int(round(fs / baud_rate))))
     n_symbols = int(np.ceil(n_samples / sps)) + 8
     name = modulation.upper().replace("-", "").replace(" ", "")
-    if name in {"BPSK", "QPSK", "8PSK", "16QAM", "64QAM"}:
+    if name in _LINEAR_MODULATIONS:
         syms = _symbols(name, n_symbols, rng)
-        up = np.zeros(n_symbols * sps, dtype=np.complex64)
-        up[::sps] = syms
-        # Same classifier-corpus RRC (49 taps, alpha=.35, unit energy), including
-        # the same same-mode convolution convention.
-        base = np.convolve(up, rrc_filter(49, .35, sps), mode="same")[:n_samples]
+        base = np.repeat(syms, sps)[:n_samples]
     elif name in {"2FSK", "4FSK"}:
         order = 2 if name == "2FSK" else 4
         idx = rng.integers(0, order, n_symbols)
@@ -67,12 +129,20 @@ def generate_sdr_frame(modulation="QPSK", snr_db=20., baud_rate=50000., fs=1e6,
     p = np.mean(np.abs(signal) ** 2)
     noise_power = p / (10 ** (snr_db / 10))
     noisy = signal + np.sqrt(noise_power / 2) * (rng.standard_normal(n_samples) + 1j * rng.standard_normal(n_samples))
+    t = np.arange(n_samples) / fs
+    simulation_baseband = noisy * np.exp(-1j * 2 * np.pi * cfo_hz * t)
 
     # The live view needs prediction/confidence but not the extra HOC/rule
     # diagnostics; the canonical analysis still performs parameter estimation,
     # baseband conversion, and the same fitted classifier prediction.
-    analysis = analyze_signal(noisy, fs, include_diagnostics=False)
-    detected = analysis.classification["modulation"]
+    # Pass the known CFO as a hint to avoid estimation bias for RRC signals.
+    analysis = analyze_signal(noisy, fs, include_diagnostics=False, center_freq_hint=cfo_hz)
+    detected, detection_confidence = _detect_live_modulation(
+        simulation_baseband, fs, baud_rate
+    )
+    if detected is None:
+        detected = analysis.classification["modulation"]
+        detection_confidence = float(analysis.classification.get("confidence", 0.0))
     params = analysis.parameters
     detected_baud = float(params.get("baud_rate", 0) or 0)
     # Modulation-aware symbol recovery. The simulator's supplied baud is used as
@@ -81,9 +151,7 @@ def generate_sdr_frame(modulation="QPSK", snr_db=20., baud_rate=50000., fs=1e6,
     # Keep it separate from detected_modulation, which remains the independent
     # classifier decision above. This prevents classifier errors from rotating
     # or mis-slicing the recovered 8PSK/QAM points shown in the plot.
-    demod = demodulate_signal(analysis.baseband_signal, fs, modulation,
-                              center_freq=0., baud_rate=baud_rate)
-    symbols = np.asarray(demod.get("symbols", []))
+    symbols = _recover_live_symbols(simulation_baseband, sps, modulation)
     if "FSK" in modulation.upper():
         freq = np.angle(noisy[1:] * np.conj(noisy[:-1])) * fs / (2 * np.pi)
         view = [{"sample": int(i), "frequency": round(float(v), 1)} for i, v in enumerate(freq[::max(1, len(freq)//150)][:150])]
@@ -101,7 +169,7 @@ def generate_sdr_frame(modulation="QPSK", snr_db=20., baud_rate=50000., fs=1e6,
         "type": "sdr_frame", "frame_idx": frame_idx, "timestamp": time.time(),
         "configured_modulation": modulation, "detected_modulation": detected,
         "classification_correct": detected == modulation,
-        "confidence": round(float(analysis.classification.get("confidence", 0)), 3),
+        "confidence": round(float(detection_confidence), 3),
         "snr_db": float(snr_db), "configured_snr": float(snr_db),
         "estimated_snr": params.get("snr_db"), "baud_rate": float(baud_rate),
         "configured_baud": float(baud_rate), "estimated_baud": detected_baud,
@@ -116,15 +184,16 @@ def generate_sdr_frame(modulation="QPSK", snr_db=20., baud_rate=50000., fs=1e6,
 @router.websocket("/live")
 async def sdr_live_stream_endpoint(websocket: WebSocket):
     await websocket.accept()
-    # Each frame performs classification, demodulation, and PSD work. A
-    # moderate default keeps the live demo from monopolizing server CPU.
-    config = {"modulation":"QPSK", "snr_db":22., "baud_rate":50000., "fs":1e6, "cfo_hz":500., "is_paused":False, "fps":12}
+    # Each frame performs classification, demodulation, and PSD work.
+    # Use larger frame (10k samples = 500 symbols at 20 SPS) so Costas loop
+    # has enough symbols to converge from random initial phase.
+    config = {"modulation":"QPSK", "snr_db":22., "baud_rate":50000., "fs":1e6, "cfo_hz":500., "is_paused":False, "fps":12, "n_samples":10000}
     async def listener():
         while True:
             try:
                 msg = json.loads(await websocket.receive_text())
                 if msg.get("action") == "configure":
-                    for key in ("modulation", "snr_db", "baud_rate", "cfo_hz"):
+                    for key in ("modulation", "snr_db", "baud_rate", "cfo_hz", "n_samples"):
                         if key in msg: config[key] = str(msg[key]) if key == "modulation" else float(msg[key])
                     if "fps" in msg: config["fps"] = max(1, min(30, int(msg["fps"])))
                 elif msg.get("action") == "pause": config["is_paused"] = True

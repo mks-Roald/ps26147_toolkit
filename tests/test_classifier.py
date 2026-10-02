@@ -11,7 +11,8 @@ from ps26147_toolkit.classifier import (
     MODULATION_CLASSES,
 )
 from ps26147_toolkit.feature_extractor import rrc_filter
-from api.routes.stream import generate_sdr_frame
+from ps26147_toolkit.demodulator import CONSTELLATIONS
+from api.routes.stream import _waveform, generate_sdr_frame
 
 
 def generate_test_signal(mod: str, num_symbols: int = 512, sps: int = 8, fs: float = 1e6, snr_db: float = 20.0):
@@ -196,3 +197,21 @@ def test_live_simulator_ground_truth_diagnostics(mod, snr, baud):
     else:
         assert frame["visualization"] == "constellation"
         assert frame["constellation"]
+
+
+@pytest.mark.parametrize("mod", ["BPSK", "QPSK", "8PSK", "16QAM", "64QAM", "2FSK", "4FSK"])
+def test_live_simulator_rectangular_pulses_and_detection(mod):
+    if not mod.endswith("FSK"):
+        waveform, sps = _waveform(mod, baud_rate=50000, fs=1e6, n_samples=10000,
+                                  rng=np.random.default_rng(26147))
+        for start in range(0, len(waveform) - sps + 1, sps):
+            np.testing.assert_allclose(waveform[start:start + sps], waveform[start])
+
+    frame = generate_sdr_frame(mod, snr_db=22, baud_rate=50000, fs=1e6,
+                               cfo_hz=500, n_samples=10000, seed=26147)
+    assert frame["detected_modulation"] == mod
+    if not mod.endswith("FSK"):
+        points = np.array([complex(point["i"], point["q"]) for point in frame["constellation"]])
+        reference = CONSTELLATIONS[mod]
+        mse = np.mean(np.min(np.abs(points[:, None] - reference[None, :]) ** 2, axis=1))
+        assert mse < 0.02

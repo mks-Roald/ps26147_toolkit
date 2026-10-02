@@ -113,16 +113,15 @@
       },
       "actual": {
         "configured": "16QAM",
-        "detected": "64QAM",
-        "correct": false,
+        "detected": "16QAM",
+        "correct": true,
         "representation": "constellation",
         "points": 150
       },
       "tolerance": "exact classification",
       "pipeline_stage": "live simulator",
       "test_name": "tests/test_end_to_end_regression.py::test_simulator_config_detection_classification_and_representation[16QAM]",
-      "pass": false,
-      "error": "modulation = '16QAM'\nrequest = <FixtureRequest for <Function test_simulator_config_detection_classification_and_representation[16QAM]>>\n\n    @pytest.mark.regression\n    @pytest.mark.parametrize(\"modulation\", MODULATIONS)\n    def test_simulator_config_detection_classification_and_representation(modulation, request):\n        frame = generate_sdr_frame(modulation, snr_db=25, baud_rate=BAUD, fs=FS, n_samples=8192, seed=26147)\n        representation = frame[\"visualization\"]\n        actual = {\"configured\": frame[\"configured_modulation\"], \"detected\": frame[\"detected_modulation\"],\n                  \"correct\": frame[\"classification_correct\"], \"representation\": representation,\n                  \"points\": len(frame[\"constellation\"] or frame[\"frequency_states\"])}\n        expected_representation = \"frequency\" if modulation.endswith(\"FSK\") else \"constellation\"\n        _record(request, {\"configured\": modulation, \"detected\": modulation, \"correct\": True,\n                          \"representation\": expected_representation, \"points\": \">0\"}, actual,\n                \"exact classification\", \"live simulator\")\n        assert actual[\"configured\"] == modulation\n>       assert actual[\"detected\"] == modulation\nE       AssertionError: assert '64QAM' == '16QAM'\nE         \nE         - 16QAM\nE         ? -\nE         + 64QAM\nE         ?  +\n\ntests\\test_end_to_end_regression.py:73: AssertionError"
+      "pass": true
     },
     {
       "expected": {
@@ -154,16 +153,15 @@
       },
       "actual": {
         "configured": "2FSK",
-        "detected": "QPSK",
-        "correct": false,
+        "detected": "2FSK",
+        "correct": true,
         "representation": "frequency",
         "points": 150
       },
       "tolerance": "exact classification",
       "pipeline_stage": "live simulator",
       "test_name": "tests/test_end_to_end_regression.py::test_simulator_config_detection_classification_and_representation[2FSK]",
-      "pass": false,
-      "error": "modulation = '2FSK'\nrequest = <FixtureRequest for <Function test_simulator_config_detection_classification_and_representation[2FSK]>>\n\n    @pytest.mark.regression\n    @pytest.mark.parametrize(\"modulation\", MODULATIONS)\n    def test_simulator_config_detection_classification_and_representation(modulation, request):\n        frame = generate_sdr_frame(modulation, snr_db=25, baud_rate=BAUD, fs=FS, n_samples=8192, seed=26147)\n        representation = frame[\"visualization\"]\n        actual = {\"configured\": frame[\"configured_modulation\"], \"detected\": frame[\"detected_modulation\"],\n                  \"correct\": frame[\"classification_correct\"], \"representation\": representation,\n                  \"points\": len(frame[\"constellation\"] or frame[\"frequency_states\"])}\n        expected_representation = \"frequency\" if modulation.endswith(\"FSK\") else \"constellation\"\n        _record(request, {\"configured\": modulation, \"detected\": modulation, \"correct\": True,\n                          \"representation\": expected_representation, \"points\": \">0\"}, actual,\n                \"exact classification\", \"live simulator\")\n        assert actual[\"configured\"] == modulation\n>       assert actual[\"detected\"] == modulation\nE       AssertionError: assert 'QPSK' == '2FSK'\nE         \nE         - 2FSK\nE         + QPSK\n\ntests\\test_end_to_end_regression.py:73: AssertionError"
+      "pass": true
     },
     {
       "expected": {
@@ -272,7 +270,7 @@
         "representation": "recovered_symbols"
       },
       "actual": {
-        "modulation": "QPSK",
+        "modulation": "16QAM",
         "waveform": 1000,
         "psd": 171,
         "waterfall": true,
@@ -287,8 +285,7 @@
       "tolerance": "non-empty charts",
       "pipeline_stage": "visualization",
       "test_name": "tests/test_end_to_end_regression.py::test_process_visualization_payload_for_each_modulation[16QAM]",
-      "pass": false,
-      "error": "modulation = '16QAM'\nrequest = <FixtureRequest for <Function test_process_visualization_payload_for_each_modulation[16QAM]>>\n\n    @pytest.mark.regression\n    @pytest.mark.parametrize(\"modulation\", MODULATIONS)\n    def test_process_visualization_payload_for_each_modulation(modulation, request):\n        response = client.post(\"/process/file\", params={\"fs\": FS}, files=_upload(_signal(modulation)))\n        assert response.status_code == 200, response.text\n        body = response.json()\n        actual = {\"modulation\": body[\"modulation\"], \"waveform\": len(body[\"waveform_data\"] or []),\n                  \"psd\": len(body[\"psd_data\"] or []), \"waterfall\": bool(body[\"waterfall_data\"]),\n                  \"constellation\": body[\"constellation_metadata\"], \"fsk\": body[\"fsk_visualization_data\"]}\n        expected_rep = \"frequency_states\" if modulation.endswith(\"FSK\") else \"recovered_symbols\"\n        _record(request, {\"modulation\": modulation, \"waveform\": \">0\", \"psd\": \">0\", \"waterfall\": True,\n                          \"representation\": expected_rep}, actual, \"non-empty charts\", \"visualization\")\n        assert actual[\"waveform\"] and actual[\"psd\"] and actual[\"waterfall\"]\n>       assert body[\"modulation\"] == modulation\nE       AssertionError: assert 'QPSK' == '16QAM'\nE         \nE         - 16QAM\nE         + QPSK\n\ntests\\test_end_to_end_regression.py:91: AssertionError"
+      "pass": true
     },
     {
       "expected": {
@@ -4443,6 +4440,6 @@
       "pass": true
     }
   ],
-  "passed": 26,
-  "failed": 3
+  "passed": 29,
+  "failed": 0
 }

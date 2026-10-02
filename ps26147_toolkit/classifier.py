@@ -56,7 +56,7 @@ def downconvert_baseband(signal: np.ndarray, fs: float, fc: Optional[float] = No
     from scipy.signal import welch
     nperseg = min(1024, len(sig))
     freqs, psd = welch(sig, fs=fs, nperseg=nperseg)
-    fc_coarse = float(fc) if fc else float(freqs[int(np.argmax(psd))])
+    fc_coarse = float(fc) if fc is not None else float(freqs[int(np.argmax(psd))])
     if fc_coarse <= 0.0:
         return sig
 
@@ -350,6 +350,11 @@ def rule_based_classify(signal: np.ndarray = None, fs: float = 1000000.0, fc: Op
     else:
         s_norm = (sig - np.mean(sig)) / (np.abs(sig - np.mean(sig)) + 1e-12)
         qpsk_fold = float(np.abs(np.mean(s_norm ** 4)))
+
+    # Oversampled rectangular 16QAM has a broad envelope and a strong fourth
+    # moment, but its phase-only fold can exceed the generic QPSK threshold.
+    if qpsk_fold < 0.45 and sigma_aa > 0.30 and abs_c40 > 0.68 and c42 > -0.80:
+        return "16QAM"
 
     # BPSK: Strong real moment c20 and high c40/c60
     if abs_c20 > 0.55 or (abs_c40 > 1.35 and phase_std > 0.8):
