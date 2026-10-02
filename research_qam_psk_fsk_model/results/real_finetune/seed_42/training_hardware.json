@@ -1,0 +1,235 @@
+{
+  "pytorch": "2.14.0+cu130",
+  "cuda_available": true,
+  "cuda_version": "13.0",
+  "cudnn_available": true,
+  "gpu_count": 1,
+  "gpu_name": "NVIDIA GeForce RTX 2050",
+  "gpu_vram_bytes": 4294443008,
+  "selected_device": "cuda",
+  "amp": true,
+  "cuda_fallback_error": null,
+  "amp_enabled": true,
+  "physical_batch_size": 16,
+  "gradient_accumulation_steps": 1,
+  "effective_batch_size": 16,
+  "peak_preflight_vram_bytes": 18440192,
+  "peak_training_allocated_vram_bytes": 71615488,
+  "peak_training_reserved_vram_bytes": 88080384,
+  "training_seconds": 98.44138389999898,
+  "best_epoch": 18,
+  "epochs_completed": 26,
+  "parameter_counts": {
+    "iq": 24832,
+    "polar": 24960,
+    "psk": 24960,
+    "if": 24960,
+    "psd": 22976,
+    "features": 5536,
+    "branch_projections": 24960,
+    "fusion": 1542,
+    "classifier": 25223,
+    "total": 179949
+  },
+  "data_loader": {
+    "num_workers": 4,
+    "pin_memory": true,
+    "persistent_workers": true,
+    "prefetch_factor": 2
+  },
+  "timing_totals": {
+    "batch_loading_seconds": 23.98933599998054,
+    "file_load_sample_seconds": 64.0972380000203,
+    "preprocessing_sample_seconds": 128.0194888999049,
+    "gpu_compute_seconds": 29.61541931152344,
+    "validation_seconds": 20.268077300002915,
+    "epoch_seconds": 95.95519099999547
+  },
+  "gpu_utilization_by_epoch": [
+    {
+      "epoch": 1,
+      "utilization_pct": 78,
+      "memory_used_mb": 256,
+      "memory_total_mb": 4096
+    },
+    {
+      "epoch": 2,
+      "utilization_pct": 0,
+      "memory_used_mb": 258,
+      "memory_total_mb": 4096
+    },
+    {
+      "epoch": 3,
+      "utilization_pct": 53,
+      "memory_used_mb": 258,
+      "memory_total_mb": 4096
+    },
+    {
+      "epoch": 4,
+      "utilization_pct": 28,
+      "memory_used_mb": 258,
+      "memory_total_mb": 4096
+    },
+    {
+      "epoch": 5,
+      "utilization_pct": 0,
+      "memory_used_mb": 262,
+      "memory_total_mb": 4096
+    },
+    {
+      "epoch": 6,
+      "utilization_pct": 72,
+      "memory_used_mb": 262,
+      "memory_total_mb": 4096
+    },
+    {
+      "epoch": 7,
+      "utilization_pct": 12,
+      "memory_used_mb": 262,
+      "memory_total_mb": 4096
+    },
+    {
+      "epoch": 8,
+      "utilization_pct": 0,
+      "memory_used_mb": 262,
+      "memory_total_mb": 4096
+    },
+    {
+      "epoch": 9,
+      "utilization_pct": 0,
+      "memory_used_mb": 262,
+      "memory_total_mb": 4096
+    },
+    {
+      "epoch": 10,
+      "utilization_pct": 0,
+      "memory_used_mb": 262,
+      "memory_total_mb": 4096
+    },
+    {
+      "epoch": 11,
+      "utilization_pct": 0,
+      "memory_used_mb": 262,
+      "memory_total_mb": 4096
+    },
+    {
+      "epoch": 12,
+      "utilization_pct": 3,
+      "memory_used_mb": 262,
+      "memory_total_mb": 4096
+    },
+    {
+      "epoch": 13,
+      "utilization_pct": 26,
+      "memory_used_mb": 262,
+      "memory_total_mb": 4096
+    },
+    {
+      "epoch": 14,
+      "utilization_pct": 71,
+      "memory_used_mb": 262,
+      "memory_total_mb": 4096
+    },
+    {
+      "epoch": 15,
+      "utilization_pct": 0,
+      "memory_used_mb": 262,
+      "memory_total_mb": 4096
+    },
+    {
+      "epoch": 16,
+      "utilization_pct": 48,
+      "memory_used_mb": 262,
+      "memory_total_mb": 4096
+    },
+    {
+      "epoch": 17,
+      "utilization_pct": 50,
+      "memory_used_mb": 262,
+      "memory_total_mb": 4096
+    },
+    {
+      "epoch": 18,
+      "utilization_pct": 0,
+      "memory_used_mb": 262,
+      "memory_total_mb": 4096
+    },
+    {
+      "epoch": 19,
+      "utilization_pct": 75,
+      "memory_used_mb": 262,
+      "memory_total_mb": 4096
+    },
+    {
+      "epoch": 20,
+      "utilization_pct": 0,
+      "memory_used_mb": 262,
+      "memory_total_mb": 4096
+    },
+    {
+      "epoch": 21,
+      "utilization_pct": 0,
+      "memory_used_mb": 262,
+      "memory_total_mb": 4096
+    },
+    {
+      "epoch": 22,
+      "utilization_pct": 22,
+      "memory_used_mb": 262,
+      "memory_total_mb": 4096
+    },
+    {
+      "epoch": 23,
+      "utilization_pct": 45,
+      "memory_used_mb": 262,
+      "memory_total_mb": 4096
+    },
+    {
+      "epoch": 24,
+      "utilization_pct": 68,
+      "memory_used_mb": 262,
+      "memory_total_mb": 4096
+    },
+    {
+      "epoch": 25,
+      "utilization_pct": 70,
+      "memory_used_mb": 262,
+      "memory_total_mb": 4096
+    },
+    {
+      "epoch": 26,
+      "utilization_pct": 69,
+      "memory_used_mb": 262,
+      "memory_total_mb": 4096
+    }
+  ],
+  "transfer": {
+    "scaler_policy": "pretrained_checkpoint",
+    "encoder_freeze_epochs": 4,
+    "selective_unfreeze_epoch": 5,
+    "selective_unfreeze_modules": [
+      "iq_encoder.features.7",
+      "iq_encoder.features.8",
+      "polar_encoder.features.4",
+      "polar_encoder.projection",
+      "psk_encoder.features.4",
+      "psk_encoder.projection",
+      "if_encoder.features.4",
+      "if_encoder.projection",
+      "psd_encoder.features.4",
+      "psd_encoder.projection",
+      "feature_encoder.mlp.2",
+      "feature_encoder.projection"
+    ],
+    "encoder_learning_rate": 1e-05,
+    "fusion_head_learning_rate": 3e-05
+  },
+  "trainability_at_epoch_1": {
+    "encoder_trainable": 0,
+    "fusion_head_trainable": 60045
+  },
+  "trainability_at_best_epoch": {
+    "encoder_trainable": 119904,
+    "fusion_head_trainable": 60045
+  }
+}

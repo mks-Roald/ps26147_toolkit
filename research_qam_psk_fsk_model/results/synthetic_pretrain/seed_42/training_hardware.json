@@ -1,0 +1,33 @@
+{
+  "pytorch": "2.14.0+cu130",
+  "cuda_available": true,
+  "cuda_version": "13.0",
+  "cudnn_available": true,
+  "gpu_count": 1,
+  "gpu_name": "NVIDIA GeForce RTX 2050",
+  "gpu_vram_bytes": 4294443008,
+  "selected_device": "cuda",
+  "amp": true,
+  "cuda_fallback_error": null,
+  "amp_enabled": true,
+  "physical_batch_size": 16,
+  "gradient_accumulation_steps": 1,
+  "effective_batch_size": 16,
+  "peak_preflight_vram_bytes": 32628736,
+  "peak_training_allocated_vram_bytes": 247409152,
+  "training_seconds": 26002.3310548,
+  "best_epoch": 38,
+  "epochs_completed": 40,
+  "parameter_counts": {
+    "iq": 35712,
+    "polar": 36288,
+    "psk": 36288,
+    "if": 35616,
+    "psd": 26800,
+    "features": 6272,
+    "branch_projections": 24960,
+    "fusion": 1542,
+    "classifier": 25223,
+    "total": 228701
+  }
+}

@@ -1,0 +1,73 @@
+{
+  "data": {
+    "dataset_root": "",
+    "train_manifest": "",
+    "validation_manifest": "",
+    "synthetic_pretraining_dataset_root": "C:/Users/amity/Desktop/ps26147_toolkit/data_synthetic_25k",
+    "synthetic_pretraining_train_manifest": "research_qam_psk_fsk_model/data/synthetic_train_manifest.json",
+    "synthetic_pretraining_validation_manifest": "research_qam_psk_fsk_model/data/synthetic_val_manifest.json",
+    "real_finetuning_dataset_root": "",
+    "real_finetuning_train_manifest": "",
+    "real_finetuning_validation_manifest": "",
+    "input_length": 4096,
+    "iq_fallback_sample_rate_hz": null,
+    "num_workers": 0
+  },
+  "training": {
+    "seed": 42,
+    "optimizer": "AdamW",
+    "learning_rate": 0.0005,
+    "weight_decay": 0.0001,
+    "batch_size": 16,
+    "gradient_accumulation_steps": 1,
+    "max_epochs": 40,
+    "early_stopping_patience": 8,
+    "focal_gamma": 2.0,
+    "low_snr_qam_weight": 0.25,
+    "amp": true,
+    "phase_rotation_augmentation": true,
+    "model_selection_priority": [
+      "macro_f1",
+      "recall_64QAM",
+      "accuracy"
+    ],
+    "output_dir": "research_qam_psk_fsk_model/results",
+    "gradient_clip_norm": 5.0
+  },
+  "architecture": {
+    "num_classes": 7,
+    "feature_count": 22,
+    "iq_embedding_dim": 128,
+    "auxiliary_embedding_dim": 64,
+    "fused_embedding_dim": 128,
+    "psd_bins": 2048,
+    "dropout": 0.25
+  },
+  "stage": "synthetic_pretrain",
+  "init_checkpoint": "",
+  "repository_version": "record git commit or dataset release before a future run",
+  "train_manifest": "C:\\Users\\amity\\Desktop\\ps26147_toolkit\\research_qam_psk_fsk_model\\data\\synthetic_train_manifest.json",
+  "train_manifest_sha256": "5fa7ee9e874f065d5eda4115f3646a779e406dc76f911229228f3740c59f3c05",
+  "validation_manifest": "C:\\Users\\amity\\Desktop\\ps26147_toolkit\\research_qam_psk_fsk_model\\data\\synthetic_val_manifest.json",
+  "validation_manifest_sha256": "71c63790ea7bba2d9d7e4b3404a7ab93f6c3ae6d10b0937b6e45a7d1177c2800",
+  "train_count": 20002,
+  "validation_count": 4998,
+  "train_validation_disjoint": true,
+  "test_manifest_opened": false,
+  "test_iq_opened": false,
+  "validation_used_for_scaler_fit": false,
+  "device_info": {
+    "pytorch": "2.14.0+cu130",
+    "cuda_available": true,
+    "cuda_version": "13.0",
+    "cudnn_available": true,
+    "gpu_count": 1,
+    "gpu_name": "NVIDIA GeForce RTX 2050",
+    "gpu_vram_bytes": 4294443008,
+    "selected_device": "cuda",
+    "amp": true,
+    "cuda_fallback_error": null
+  },
+  "phase_rotation_rebuilds_all_representations": true,
+  "low_snr_qam_missing_snr_weight": 1.0
+}

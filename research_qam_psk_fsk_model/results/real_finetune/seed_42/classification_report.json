@@ -1,0 +1,57 @@
+{
+  "BPSK": {
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1-score": 1.0,
+    "support": 17.0
+  },
+  "QPSK": {
+    "precision": 0.6,
+    "recall": 0.8823529411764706,
+    "f1-score": 0.7142857142857143,
+    "support": 17.0
+  },
+  "8PSK": {
+    "precision": 0.9230769230769231,
+    "recall": 0.7058823529411765,
+    "f1-score": 0.8,
+    "support": 17.0
+  },
+  "16QAM": {
+    "precision": 0.8571428571428571,
+    "recall": 0.7058823529411765,
+    "f1-score": 0.7741935483870968,
+    "support": 17.0
+  },
+  "64QAM": {
+    "precision": 0.875,
+    "recall": 0.8235294117647058,
+    "f1-score": 0.8484848484848485,
+    "support": 17.0
+  },
+  "2FSK": {
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1-score": 1.0,
+    "support": 17.0
+  },
+  "4FSK": {
+    "precision": 0.9411764705882353,
+    "recall": 0.9411764705882353,
+    "f1-score": 0.9411764705882353,
+    "support": 17.0
+  },
+  "accuracy": 0.865546218487395,
+  "macro avg": {
+    "precision": 0.8851994644011452,
+    "recall": 0.8655462184873951,
+    "f1-score": 0.8683057973922708,
+    "support": 119.0
+  },
+  "weighted avg": {
+    "precision": 0.885199464401145,
+    "recall": 0.865546218487395,
+    "f1-score": 0.8683057973922707,
+    "support": 119.0
+  }
+}
