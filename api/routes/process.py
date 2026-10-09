@@ -14,14 +14,14 @@ from api.schemas import (
     ConstellationMetadata,
 )
 from ps26147_toolkit.demodulator import demodulate_signal, symbol_timing_recovery
-from api.utils import load_signal_from_bytes
+from api.utils import build_demodulation_quality, load_signal_from_bytes
 from api.task_manager import task_manager
 from api.routes.decode import _resolve_sync_word
 from ps26147_toolkit.deinterleaver import _byte_entropy
 
 router = APIRouter()
 
-def _process_signal_core(contents: bytes, filename: str, sample_rate_hint: float, analysis_override=None, signal_override=None) -> ProcessResponse:
+def _process_signal_core(contents: bytes, filename: str, sample_rate_hint: Optional[float], analysis_override=None, signal_override=None) -> ProcessResponse:
     """Core synchronous processing pipeline reused by both sync and async handlers."""
     if signal_override is None:
         sig, sample_rate = load_signal_from_bytes(
@@ -37,7 +37,7 @@ def _process_signal_core(contents: bytes, filename: str, sample_rate_hint: float
     duration_sec = float(num_samples / sample_rate)
 
     # 1. Modulation Classification
-    analysis = analysis_override or analyze_signal(sig, sample_rate)
+    analysis = analysis_override or analyze_signal(sig, sample_rate, trim_burst=True)
     clf_res = analysis.classification
     mod = clf_res["modulation"]
     conf = float(clf_res["confidence"])
@@ -55,6 +55,7 @@ def _process_signal_core(contents: bytes, filename: str, sample_rate_hint: float
     recovered_symbols = None
     constellation_metadata = None
     fsk_visualization = None
+    demodulation_quality = None
     symbol_rate = float(params["baud_rate"])
     if "FSK" in mod.upper():
         bb = analysis.baseband_signal
@@ -81,8 +82,12 @@ def _process_signal_core(contents: bytes, filename: str, sample_rate_hint: float
             frequency_state_count=state_count,
         )
     elif mod.upper() in {"BPSK", "QPSK", "8PSK", "16QAM", "64QAM"}:
-        demod = demodulate_signal(analysis.baseband_signal, sample_rate, mod,
-                                  center_freq=0.0, baud_rate=symbol_rate)
+        demod_signal = analysis.demod_baseband if analysis.demod_baseband is not None else analysis.baseband_signal
+        demod = demodulate_signal(demod_signal, sample_rate, mod,
+                      center_freq=0.0, baud_rate=symbol_rate,
+                                  matched_filter_mode="auto", cfo_mode="auto",
+                                  max_symbols=1600)
+        demodulation_quality = build_demodulation_quality(demod, float(params["snr_db"]))
         syms = np.asarray(demod["symbols"])
         if len(syms) > 1600:
             syms = syms[np.linspace(0, len(syms)-1, 1600).astype(int)]
@@ -148,6 +153,7 @@ def _process_signal_core(contents: bytes, filename: str, sample_rate_hint: float
         constellation_data=constellation_pts,
         constellation_metadata=constellation_metadata,
         fsk_visualization_data=fsk_visualization,
+        demodulation_quality=demodulation_quality,
         psd_data=psd_pts,
         waterfall_data=waterfall_obj,
     )
@@ -156,7 +162,7 @@ def _process_signal_core(contents: bytes, filename: str, sample_rate_hint: float
 @router.post("/session", response_model=ProcessResponse)
 async def create_analysis_session(
     file: UploadFile = File(...),
-    fs: float = Query(1_000_000.0),
+    fs: Optional[float] = Query(None),
     fec_scheme: str = Query("none"),
     sync_word: Optional[str] = Query(None),
     auto_detect_sync: bool = Query(True),
@@ -166,11 +172,14 @@ async def create_analysis_session(
     try:
         contents = await file.read()
         sig, actual_fs = load_signal_from_bytes(contents, file.filename or "", default_fs=fs, target_fs=fs)
-        analysis = analyze_signal(sig, actual_fs)
+        analysis = analyze_signal(sig, actual_fs, trim_burst=True)
         result = _process_signal_core(contents, file.filename or "", fs, analysis, sig)
         mod = analysis.classification["modulation"]
-        demod = demodulate_signal(analysis.baseband_signal, actual_fs, mod, center_freq=0.0,
-                                  baud_rate=float(analysis.parameters["baud_rate"]) or None)
+        demod_signal = analysis.demod_baseband if analysis.demod_baseband is not None else analysis.baseband_signal
+        demod = demodulate_signal(demod_signal, actual_fs, mod, center_freq=0.0,
+                                  baud_rate=float(analysis.parameters["baud_rate"]) or None,
+                                  matched_filter_mode="auto", cfo_mode="auto",
+                                  max_symbols=None)
         bits = np.asarray(demod["bits"], dtype=np.uint8)
         raw_bits = bits.copy()
         llr = demod.get("llr")
@@ -236,7 +245,9 @@ async def create_analysis_session(
             result.decoded_ascii = "".join(chr(byte) if 32 <= byte <= 126 else "." for byte in output_bytes)
         else:
             result.decoded_hex, result.decoded_ascii = "", ""
-        result.demodulation_quality = {"evm_db": float(demod.get("evm_db", 0.0)), "evm_percent": float(demod.get("evm_percent", 0.0)), "snr_db": float(analysis.parameters["snr_db"])}
+        result.demodulation_quality = build_demodulation_quality(
+            demod, float(analysis.parameters["snr_db"])
+        )
         result.fec_ran = fec_ran
         result.evm_db = float(demod.get("evm_db", 0.0))
         result.fec_scheme = fec_scheme
@@ -250,7 +261,7 @@ async def create_analysis_session(
         raise HTTPException(status_code=500, detail=f"Analysis session error: {e}")
 
 
-def _async_process_worker(job_id: str, contents: bytes, filename: str, fs: float):
+def _async_process_worker(job_id: str, contents: bytes, filename: str, fs: Optional[float]):
     """Background worker executing signal processing stages with live progress reporting."""
     try:
         task_manager.update_job(job_id, status="processing", progress=0.15, stage="Parsing file format & samples…")
@@ -283,7 +294,7 @@ def _async_process_worker(job_id: str, contents: bytes, filename: str, fs: float
 @router.post("/file", response_model=ProcessResponse)
 async def process_file_sync(
     file: UploadFile = File(...),
-    fs: float = Query(1_000_000.0, description="Target WAV sample rate; default sample rate for IQ data")
+    fs: Optional[float] = Query(None, description="Optional sample rate override for WAV or raw IQ data")
 ):
     """Synchronous file processing endpoint."""
     try:
@@ -297,7 +308,7 @@ async def process_file_sync(
 async def process_file_async(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    fs: float = Query(1_000_000.0, description="Target WAV sample rate; default sample rate for IQ data")
+    fs: Optional[float] = Query(None, description="Optional sample rate override for WAV or raw IQ data")
 ):
     """Asynchronous file processing endpoint: returns job ID immediately and processes in background."""
     contents = await file.read()

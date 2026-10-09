@@ -259,6 +259,19 @@ def test_snr_clip_ceiling_raised_above_50():
     assert est == CEIL, f"SNR {est:.2f} dB should clip to ceiling {CEIL}"
 
 
+def test_noise_floor_ignores_empty_half_of_analytic_spectrum():
+    from ps26147_toolkit.parameter_extractor import _compute_masked_noise_floor
+
+    n = 1024
+    freqs = np.fft.fftshift(np.fft.fftfreq(n))
+    psd = np.full(n, 1e-18)
+    positive = freqs >= 0
+    psd[positive] = 1e-3
+    psd[n // 2 + 80:n // 2 + 90] = 1.0
+
+    assert np.isclose(_compute_masked_noise_floor(psd, freqs=freqs), 1e-3)
+
+
 def test_snr_clipped_flag_false_below_ceiling():
     """snr_clipped must be False for a typical mid-range SNR reading."""
     from ps26147_toolkit.parameter_extractor import _SNR_CLIP_CEILING_DB

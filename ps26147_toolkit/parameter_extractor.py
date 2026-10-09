@@ -103,7 +103,11 @@ def estimate_center_frequency(
     return center_freq, confidence
 
 
-def _compute_masked_noise_floor(psd: np.ndarray, mask_ratio: float = 0.05) -> float:
+def _compute_masked_noise_floor(
+    psd: np.ndarray,
+    mask_ratio: float = 0.05,
+    freqs: Optional[np.ndarray] = None,
+) -> float:
     """Compute out-of-band noise floor by masking out dominant signal energy bins.
 
     Parameters
@@ -120,6 +124,17 @@ def _compute_masked_noise_floor(psd: np.ndarray, mask_ratio: float = 0.05) -> fl
     """
     if len(psd) == 0:
         return 1e-12
+
+    if freqs is not None and len(freqs) == len(psd):
+        positive = psd[freqs >= 0]
+        negative = psd[freqs < 0]
+        if positive.size and negative.size:
+            positive_median = float(np.median(positive))
+            negative_median = float(np.median(negative))
+            if negative_median < 1e-6 * positive_median:
+                psd = positive
+            elif positive_median < 1e-6 * negative_median:
+                psd = negative
 
     peak_val = np.max(psd)
     if peak_val <= 0:
@@ -159,7 +174,7 @@ def estimate_bandwidth(freqs: np.ndarray, psd: np.ndarray, threshold_db: float =
     if len(psd) < 2 or len(freqs) < 2:
         return 0.0
 
-    noise_floor = _compute_masked_noise_floor(psd)
+    noise_floor = _compute_masked_noise_floor(psd, freqs=freqs)
     psd_sub = np.maximum(psd - noise_floor, 1e-15)
     peak_val = np.max(psd_sub)
 
@@ -206,7 +221,7 @@ def estimate_bandwidth_all(freqs: np.ndarray, psd: np.ndarray) -> Dict[str, floa
             "confidence": 0.0,
         }
 
-    noise_floor = _compute_masked_noise_floor(psd)
+    noise_floor = _compute_masked_noise_floor(psd, freqs=freqs)
     psd_sub = np.maximum(psd - noise_floor, 1e-15)
     peak_val = np.max(psd_sub)
 
@@ -372,7 +387,7 @@ def estimate_snr(
     if len(psd) == 0:
         return 0.0
 
-    noise_floor = _compute_masked_noise_floor(psd)
+    noise_floor = _compute_masked_noise_floor(psd, freqs=freqs)
 
     snr_spectral: Optional[float] = None
 
@@ -830,7 +845,7 @@ def estimate_bandwidth_ladder(
     if len(psd) < 2 or len(freqs) < 2:
         return {db: 0.0 for db in contours}
 
-    noise_floor = _compute_masked_noise_floor(psd)
+    noise_floor = _compute_masked_noise_floor(psd, freqs=freqs)
     psd_sub = np.maximum(psd - noise_floor, 1e-15)
     peak_val = np.max(psd_sub)
     bin_width = abs(float(freqs[1] - freqs[0])) if len(freqs) > 1 else 1.0

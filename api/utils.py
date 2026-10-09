@@ -1,4 +1,5 @@
 import io
+import re
 import tempfile
 from fractions import Fraction
 from pathlib import Path
@@ -6,12 +7,39 @@ from typing import Optional, Tuple
 import numpy as np
 import scipy.io.wavfile as wavfile
 from scipy.signal import resample_poly
-from ps26147_toolkit.preprocess import load_iq, load_wav
+from ps26147_toolkit.preprocess import _wav_to_signal, load_iq, load_wav
+
+_FS_RE = re.compile(r"(\d+(?:\.\d+)?)\s*([kKmMgG]?)\s*(?:sps|sa/s)", re.I)
+
+
+def build_demodulation_quality(demod: dict, snr_db: float) -> dict[str, float]:
+    """Return a consistent numeric quality summary for API responses."""
+    def finite_float(value: object) -> float:
+        converted = float(value)
+        return converted if np.isfinite(converted) else 0.0
+
+    beta = demod.get("front_end_beta")
+    return {
+        "evm_db": finite_float(demod.get("evm_db", 0.0)),
+        "evm_percent": finite_float(demod.get("evm_percent", 0.0)),
+        "snr_db": finite_float(snr_db),
+        "cfo_corrected_hz": finite_float(demod.get("cfo_corrected_hz", 0.0)),
+        "rrc_beta": finite_float(beta) if beta is not None else 0.0,
+    }
+
+
+def infer_fs_from_filename(filename: str) -> Optional[float]:
+    """Infer a sample rate from names such as ``capture_1Msps.iq``."""
+    match = _FS_RE.search(filename or "")
+    if match is None:
+        return None
+    multiplier = {"": 1.0, "k": 1e3, "m": 1e6, "g": 1e9}[match.group(2).lower()]
+    return float(match.group(1)) * multiplier
 
 def load_signal_from_bytes(
     contents: bytes,
     filename: str = "",
-    default_fs: float = 1_000_000.0,
+    default_fs: Optional[float] = None,
     target_fs: Optional[float] = None,
 ) -> Tuple[np.ndarray, float]:
     """Parse uploaded file bytes into a numpy signal array and sample rate.
@@ -21,24 +49,23 @@ def load_signal_from_bytes(
     if len(contents) == 0:
         raise ValueError("Uploaded file is empty.")
 
+    if default_fs is None:
+        default_fs = infer_fs_from_filename(filename) or 1_000_000.0
+
     def resample_wav(signal: np.ndarray, source_fs: float) -> Tuple[np.ndarray, float]:
         if target_fs is None or float(target_fs) == float(source_fs):
             return signal, float(source_fs)
         if not np.isfinite(target_fs) or target_fs <= 0:
             raise ValueError("Target sample rate must be a finite positive number.")
         ratio = Fraction(float(target_fs) / float(source_fs)).limit_denominator(100_000)
-        return resample_poly(signal, ratio.numerator, ratio.denominator).astype(np.float32), float(target_fs)
+        out_dtype = np.complex64 if np.iscomplexobj(signal) else np.float32
+        return resample_poly(signal, ratio.numerator, ratio.denominator).astype(out_dtype), float(target_fs)
 
     # Check for WAV signature or extension
     if filename.lower().endswith(".wav") or (contents[:4] == b"RIFF" and contents[8:12] == b"WAVE"):
         try:
             sr, sig = wavfile.read(io.BytesIO(contents))
-            if sig.ndim > 1:
-                sig = np.mean(sig, axis=1)
-            orig_dtype = sig.dtype
-            sig = sig.astype(np.float32)
-            if np.issubdtype(orig_dtype, np.integer):
-                sig = sig / np.iinfo(orig_dtype).max
+            sig = _wav_to_signal(sig, stereo="iq")
             return resample_wav(sig, float(sr))
         except Exception:
             pass
@@ -53,7 +80,7 @@ def load_signal_from_bytes(
 
     try:
         if suffix.lower() == ".wav":
-            sig, meta = load_wav(tmp_path)
+            sig, meta = load_wav(tmp_path, stereo="iq")
             return resample_wav(sig, float(meta.fs))
         else:
             sig, meta = load_iq(tmp_path, dtype="auto", fs=default_fs)

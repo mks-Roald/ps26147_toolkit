@@ -1,3 +1,4 @@
+from typing import Optional
 from fastapi import APIRouter, UploadFile, File, Query, HTTPException
 from ps26147_toolkit import classifier
 from ps26147_toolkit.analysis import analyze_signal
@@ -16,13 +17,13 @@ FEATURE_NAMES = [
 @router.post("/", response_model=ClassifyResponse)
 async def classify_signal(
     file: UploadFile = File(...),
-    fs: float = Query(1_000_000.0, description="Target WAV sample rate; default sample rate for IQ data")
+    fs: Optional[float] = Query(None, description="Optional sample rate override for WAV or raw IQ data")
 ):
     try:
         contents = await file.read()
         sig, sample_rate = load_signal_from_bytes(contents, file.filename or "", default_fs=fs, target_fs=fs)
         
-        analysis = analyze_signal(sig, sample_rate)
+        analysis = analyze_signal(sig, sample_rate, trim_burst=True)
         result = analysis.classification
         params = analysis.parameters
         

@@ -152,6 +152,7 @@ class CorrelateResponse(BaseModel):
     preamble_discovery: Optional[PreambleDiscoveryResult] = None
     num_bits: Optional[int] = None
     bits: Optional[List[int]] = None
+    demodulation_quality: Optional[Dict[str, float]] = None
 
 class CorrelateRequest(BaseModel):
     bits: Optional[List[int]] = None

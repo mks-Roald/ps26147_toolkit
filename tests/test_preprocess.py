@@ -26,6 +26,7 @@ from ps26147_toolkit.preprocess import (
     load_sigmf_meta,
     load_wav,
     segment_signal,
+    trim_active_burst,
 )
 
 
@@ -397,7 +398,7 @@ class TestWavLoading:
         np.testing.assert_allclose(sig_out, sig, atol=1e-5)
 
     def test_stereo_float64_downmixed(self, tmp_path):
-        """Multi-channel WAV is averaged to mono."""
+        """The default WAV loader keeps its legacy mono downmix."""
         rng = np.random.default_rng(22)
         stereo = rng.uniform(-1, 1, (500, 2)).astype(np.float64)
         p = tmp_path / "stereo.wav"
@@ -407,6 +408,17 @@ class TestWavLoading:
         assert sig_out.ndim == 1
         assert len(sig_out) == 500
         np.testing.assert_allclose(sig_out, stereo.mean(axis=1), atol=1e-6)
+
+    def test_stereo_iq_mode(self, tmp_path):
+        stereo = np.array([[0.25, -0.5], [0.75, 0.125]], dtype=np.float32)
+        p = tmp_path / "iq.wav"
+        self._write_wav(p, 16000, np.float32, stereo)
+
+        sig_out, meta = load_wav(str(p), stereo="iq")
+
+        assert np.iscomplexobj(sig_out)
+        assert meta.num_samples == len(stereo)
+        np.testing.assert_allclose(sig_out, stereo[:, 0] + 1j * stereo[:, 1])
 
     def test_int16_normalisation(self, tmp_path):
         """Integer WAV samples are scaled to [-1, 1] using the dtype max."""
@@ -445,3 +457,26 @@ class TestSegmentSignal:
         sig = np.arange(20, dtype=np.float32)
         segs = segment_signal(sig, segment_len=10, overlap=5)
         assert len(segs) == 3
+
+
+class TestBurstTrimming:
+    def test_trims_clear_zero_padded_capture(self):
+        rng = np.random.default_rng(26147)
+        burst = (rng.standard_normal(4000) + 1j * rng.standard_normal(4000)).astype(np.complex64)
+        signal = np.concatenate((np.zeros(2000, dtype=np.complex64), burst,
+                                 np.zeros(2000, dtype=np.complex64)))
+
+        trimmed, info = trim_active_burst(signal)
+
+        assert info["trimmed"]
+        assert info["start"] > 0 and info["stop"] < len(signal)
+        assert len(trimmed) < 0.9 * len(signal)
+
+    def test_leaves_continuous_signal_untouched(self):
+        phase = np.arange(4096) * 0.13
+        signal = np.exp(1j * phase).astype(np.complex64)
+
+        trimmed, info = trim_active_burst(signal)
+
+        assert not info["trimmed"]
+        np.testing.assert_array_equal(trimmed, signal)

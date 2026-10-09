@@ -156,3 +156,6 @@ def test_correlate_signal_file():
     assert "bits" in data
     assert len(data["bits"]) > 0
     assert data["num_bits"] == len(data["bits"])
+    assert {"evm_db", "evm_percent", "snr_db", "cfo_corrected_hz", "rrc_beta"} <= data[
+        "demodulation_quality"
+    ].keys()

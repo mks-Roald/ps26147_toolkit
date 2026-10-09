@@ -548,6 +548,94 @@ def compute_fsk_evm(symbols: np.ndarray, modulation: str) -> dict:
     }
 
 
+def design_rrc(beta: float, samples_per_symbol: float, span: int = 8) -> np.ndarray:
+    """Design normalized root-raised-cosine taps for the given symbol spacing."""
+    if not 0.0 < beta <= 1.0 or samples_per_symbol <= 0:
+        raise ValueError("beta must be in (0, 1] and samples_per_symbol must be positive")
+
+    half = int(np.ceil(span * samples_per_symbol))
+    time = np.arange(-half, half + 1, dtype=np.float64) / samples_per_symbol
+    taps = np.empty_like(time)
+    for index, value in enumerate(time):
+        if abs(value) < 1e-9:
+            taps[index] = 1.0 - beta + 4.0 * beta / np.pi
+        elif abs(abs(value) - 1.0 / (4.0 * beta)) < 1e-9:
+            taps[index] = (beta / np.sqrt(2.0)) * (
+                (1.0 + 2.0 / np.pi) * np.sin(np.pi / (4.0 * beta))
+                + (1.0 - 2.0 / np.pi) * np.cos(np.pi / (4.0 * beta))
+            )
+        else:
+            numerator = (
+                np.sin(np.pi * value * (1.0 - beta))
+                + 4.0 * beta * value * np.cos(np.pi * value * (1.0 + beta))
+            )
+            denominator = np.pi * value * (1.0 - (4.0 * beta * value) ** 2)
+            taps[index] = numerator / denominator
+
+    energy = np.sqrt(np.sum(taps**2))
+    return (taps / max(energy, 1e-12)).astype(np.float32)
+
+
+def matched_filter(signal: np.ndarray, fs: float, baud_rate: float, beta: float) -> np.ndarray:
+    """Apply a same-length RRC filter when the capture supports symbol timing."""
+    samples_per_symbol = fs / baud_rate if baud_rate > 0 else 0.0
+    if samples_per_symbol < 2.0 or len(signal) < 4 * int(np.ceil(samples_per_symbol)):
+        return signal
+
+    taps = design_rrc(beta, samples_per_symbol)
+    if len(taps) >= len(signal):
+        return signal
+
+    from scipy.signal import fftconvolve
+
+    return fftconvolve(signal, taps, mode="same").astype(np.complex64)
+
+
+def _estimate_cfo_candidates(
+    symbols: np.ndarray,
+    order: int,
+    max_cycles_per_symbol: float = 0.06,
+    max_candidates: int = 3,
+) -> list[float]:
+    """Estimate prominent residual CFO candidates from an M-th-power spectrum."""
+    from scipy.signal import find_peaks
+
+    count = len(symbols)
+    if count < 64:
+        return []
+    power = float(np.mean(np.abs(symbols) ** 2))
+    if not np.isfinite(power) or power <= 1e-12:
+        return []
+
+    normalized = np.asarray(symbols, dtype=np.complex128) / np.sqrt(power)
+    fft_size = 1 << int(np.ceil(np.log2(count * 16)))
+    spectrum = np.abs(np.fft.fft(normalized**order * np.hanning(count), n=fft_size))
+    frequencies = np.fft.fftfreq(fft_size) / order
+    allowed_indices = np.flatnonzero(np.abs(frequencies) <= max_cycles_per_symbol)
+    if allowed_indices.size == 0:
+        return []
+
+    allowed_spectrum = spectrum[allowed_indices]
+    peaks, _ = find_peaks(allowed_spectrum)
+    if peaks.size == 0:
+        peaks = np.array([int(np.argmax(allowed_spectrum))])
+
+    median_power = float(np.median(spectrum)) + 1e-12
+    ranked_peaks = sorted(peaks, key=lambda index: allowed_spectrum[index], reverse=True)
+    candidates: list[float] = []
+    bin_width = 1.0 / fft_size / order
+    for peak_index in ranked_peaks:
+        global_index = allowed_indices[peak_index]
+        if spectrum[global_index] / median_power < 3.0:
+            continue
+        candidate = float(frequencies[global_index])
+        if all(abs(candidate - existing) > 2.0 * bin_width for existing in candidates):
+            candidates.append(candidate)
+        if len(candidates) >= max_candidates:
+            break
+    return candidates
+
+
 def demodulate_signal(
     signal: np.ndarray,
     fs: float,
@@ -556,6 +644,10 @@ def demodulate_signal(
     baud_rate: float = None,
     timing_method: str = "gardner",
     _baud_checked: bool = False,
+    matched_filter_mode: str = "none",
+    _matched_filter_checked: bool = False,
+    cfo_mode: str = "none",
+    max_symbols: int | None = 4096,
 ) -> dict:
     """Complete demodulation pipeline with Phase 4 enhancements.
 
@@ -573,6 +665,7 @@ def demodulate_signal(
         center_freq: Center frequency offset (Hz) for downconversion
         baud_rate: Symbol rate (baud) for timing recovery
         timing_method: "gardner" (default) or "simple" for timing recovery
+        max_symbols: Maximum symbols returned; use ``None`` to decode the full capture.
 
     Returns:
         Dictionary containing:
@@ -586,6 +679,47 @@ def demodulate_signal(
         - evm_percent: Error Vector Magnitude in %
         - modulation: Modulation scheme used
     """
+    mod_upper = modulation.upper()
+    supports_linear_refinement = any(
+        label in mod_upper for label in ("BPSK", "QPSK", "8PSK", "QAM")
+    )
+    if max_symbols is not None and max_symbols < 1:
+        raise ValueError("max_symbols must be positive or None")
+    if matched_filter_mode == "auto" and not _matched_filter_checked:
+        samples_per_symbol = fs / baud_rate if baud_rate and baud_rate > 0 else 0.0
+        modes = ("none", "0.25", "0.35", "0.5")
+        best_mode = "none"
+        best_evm = None
+        baseline_evm = None
+        if supports_linear_refinement and samples_per_symbol >= 2.0 and len(signal) >= 256:
+            trial_size = min(len(signal), int(1564 * samples_per_symbol))
+            for mode in modes:
+                trial = demodulate_signal(
+                    signal[:trial_size], fs, modulation, center_freq, baud_rate,
+                    timing_method, _baud_checked=True, matched_filter_mode=mode,
+                    _matched_filter_checked=True, cfo_mode=cfo_mode,
+                    max_symbols=2048,
+                )
+                evm = float(trial["evm_percent"])
+                if mode == "none":
+                    baseline_evm = evm
+                if np.isfinite(evm) and (best_evm is None or evm < best_evm):
+                    best_mode, best_evm = mode, evm
+            if best_mode != "none":
+                if (baseline_evm is None or not np.isfinite(baseline_evm)
+                        or best_evm is None or not np.isfinite(best_evm)
+                        or baseline_evm >= 20.0
+                        or baseline_evm - best_evm < max(0.5, 0.03 * baseline_evm)):
+                    best_mode = "none"
+        result = demodulate_signal(
+            signal, fs, modulation, center_freq, baud_rate, timing_method,
+            _baud_checked=_baud_checked, matched_filter_mode=best_mode,
+            _matched_filter_checked=True, cfo_mode=cfo_mode,
+            max_symbols=max_symbols,
+        )
+        result["front_end_beta"] = None if best_mode == "none" else float(best_mode)
+        return result
+
     if not np.iscomplexobj(signal):
         sig = hilbert(signal)
     else:
@@ -598,52 +732,87 @@ def demodulate_signal(
     else:
         sig_bb = sig
 
+    front_end_beta = None
+    if matched_filter_mode != "none" and supports_linear_refinement and baud_rate and baud_rate > 0:
+        try:
+            front_end_beta = float(matched_filter_mode)
+            sig_bb = matched_filter(sig_bb, fs, baud_rate, front_end_beta)
+        except ValueError:
+            front_end_beta = None
+
     # 2. Symbol timing recovery (Phase 4: Gardner TED)
     if baud_rate is not None and baud_rate > 0:
         symbols_raw = symbol_timing_recovery(sig_bb, fs, baud_rate, method=timing_method)
     else:
         symbols_raw = sig_bb
 
-    # Cap to reasonable number of symbols for performance & plotting
-    max_symbols = 4096
-    if len(symbols_raw) > max_symbols:
+    if max_symbols is not None and len(symbols_raw) > max_symbols:
         symbols_raw = symbols_raw[:max_symbols]
 
-    # 3. Carrier PLL / Phase Tracking (Phase 4: with drift prevention)
-    mod_upper = modulation.upper()
-    if "FSK" in mod_upper:
-        # FSK: information is in instantaneous frequency; carrier recovery would
-        # remove the modulation. Skip carrier loop for FSK.
-        symbols_tracked = symbols_raw
-    else:
-        order = 2 if "BPSK" in mod_upper else (8 if "8PSK" in mod_upper else 4)
-        symbols_tracked = costas_carrier_recovery(symbols_raw, order=order)
+    # 3. Carrier tracking and EVM-scored residual CFO candidates.
+    is_fsk = "FSK" in mod_upper
+    order = 2 if "BPSK" in mod_upper else (8 if "8PSK" in mod_upper else 4)
+    cfo_candidates = [0.0]
+    if cfo_mode == "auto" and supports_linear_refinement and not is_fsk and baud_rate and baud_rate > 0:
+        cfo_candidates.extend(_estimate_cfo_candidates(symbols_raw[:8192], order))
 
-    # 4. Energy normalization
-    p_avg = np.mean(np.abs(symbols_tracked) ** 2)
-    if p_avg > 1e-12:
-        symbols_norm = symbols_tracked / np.sqrt(p_avg)
-    else:
-        symbols_norm = symbols_tracked
+    scoring_symbols = symbols_raw[:8192]
+    best_evm = None
+    baseline_evm = None
+    corrected_cfo = 0.0
+    for candidate_cfo in cfo_candidates:
+        if candidate_cfo:
+            symbol_indices = np.arange(len(scoring_symbols))
+            corrected_symbols = scoring_symbols * np.exp(-2j * np.pi * candidate_cfo * symbol_indices)
+        else:
+            corrected_symbols = scoring_symbols
 
-    # 5. Slicing to bits & reference symbols
+        if is_fsk:
+            tracked_symbols = corrected_symbols
+        else:
+            tracked_symbols = costas_carrier_recovery(corrected_symbols, order=order)
+
+        average_power = np.mean(np.abs(tracked_symbols) ** 2)
+        normalized_symbols = tracked_symbols / np.sqrt(average_power) if average_power > 1e-12 else tracked_symbols
+        candidate_bits, reference_symbols = slice_symbols_to_bits(normalized_symbols, modulation)
+        candidate_evm = (
+            compute_fsk_evm(normalized_symbols, modulation)
+            if is_fsk else compute_evm(normalized_symbols, reference_symbols)
+        )
+        evm_percent = float(candidate_evm["evm_percent"])
+        if candidate_cfo == 0.0:
+            baseline_evm = evm_percent
+        if np.isfinite(evm_percent) and (best_evm is None or evm_percent < best_evm):
+            best_evm = evm_percent
+            corrected_cfo = candidate_cfo
+    if corrected_cfo != 0.0:
+        if (baseline_evm is None or not np.isfinite(baseline_evm)
+                or best_evm is None or not np.isfinite(best_evm)
+                or baseline_evm - best_evm < max(0.25, 0.02 * baseline_evm)):
+            corrected_cfo = 0.0
+
+    if corrected_cfo:
+        symbol_indices = np.arange(len(symbols_raw))
+        corrected_symbols = symbols_raw * np.exp(-2j * np.pi * corrected_cfo * symbol_indices)
+    else:
+        corrected_symbols = symbols_raw
+    if is_fsk:
+        tracked_symbols = corrected_symbols
+    else:
+        tracked_symbols = costas_carrier_recovery(corrected_symbols, order=order)
+    average_power = np.mean(np.abs(tracked_symbols) ** 2)
+    symbols_norm = tracked_symbols / np.sqrt(average_power) if average_power > 1e-12 else tracked_symbols
     bits, ref_symbols = slice_symbols_to_bits(symbols_norm, modulation)
+    evm_results = compute_fsk_evm(symbols_norm, modulation) if is_fsk else compute_evm(symbols_norm, ref_symbols)
 
     if not _baud_checked and baud_rate is not None:
         k = run_length_baud_factor(bits)
         if k > 1:
             return demodulate_signal(
                 signal, fs, modulation, center_freq, baud_rate / k,
-                timing_method, _baud_checked=True,
+                timing_method, _baud_checked=True, matched_filter_mode=matched_filter_mode,
+                _matched_filter_checked=True, cfo_mode=cfo_mode, max_symbols=max_symbols,
             )
-
-    # 6. EVM calculation.  FSK uses the deviation-domain metric (Phase 6 §1.6):
-    #    the constellation-domain compute_evm() measures phase rotation, not
-    #    demodulation error, for FSK.  Non-FSK keeps the constellation metric.
-    if "FSK" in mod_upper:
-        evm_results = compute_fsk_evm(symbols_norm, modulation)
-    else:
-        evm_results = compute_evm(symbols_norm, ref_symbols)
 
     # 7. Soft LLR generation (Phase 4: for soft FEC decoding)
     llr = compute_soft_llr(symbols_norm, modulation, evm_results["noise_variance"])
@@ -665,4 +834,6 @@ def demodulate_signal(
         "evm_percent": evm_results["evm_percent"],
         "modulation": modulation,
         "baud_rate_used": baud_rate,
+        "front_end_beta": front_end_beta,
+        "cfo_corrected_hz": float(corrected_cfo * baud_rate) if baud_rate else 0.0,
     }

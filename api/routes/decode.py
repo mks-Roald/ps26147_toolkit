@@ -6,7 +6,7 @@ from fastapi import APIRouter, UploadFile, File, Query, HTTPException
 from ps26147_toolkit import classifier, parameter_extractor, demodulator, fec_decoders, deinterleaver, correlator
 from ps26147_toolkit.analysis import analyze_signal
 from api.schemas import DecodeResponse
-from api.utils import load_signal_from_bytes
+from api.utils import build_demodulation_quality, load_signal_from_bytes
 from ps26147_toolkit.deinterleaver import _byte_entropy
 
 logger = logging.getLogger(__name__)
@@ -48,7 +48,7 @@ def _resolve_sync_word(sync_word: Optional[str] = None) -> Optional[np.ndarray]:
 @router.post("/", response_model=DecodeResponse)
 async def decode_signal(
     file: UploadFile = File(...),
-    fs: float = Query(1_000_000.0, description="Target WAV sample rate; default sample rate for IQ data"),
+    fs: Optional[float] = Query(None, description="Optional sample rate override for WAV or raw IQ data"),
     fec_scheme: str = Query("none", description="FEC Scheme: 'none', 'viterbi', 'reed-solomon', 'concatenated', 'ldpc'"),
     auto_deinterleave: bool = Query(False, description="Automatically detect deinterleaving; accepted only with a measured Viterbi metric improvement"),
     sync_word: Optional[str] = Query(None, description="Sync word in hex (e.g. '1ACFFC1D' or '0x47') or standard name"),
@@ -60,7 +60,7 @@ async def decode_signal(
         sig, sample_rate = load_signal_from_bytes(contents, file.filename or "", default_fs=fs, target_fs=fs)
 
         # 1. Shared canonical analysis (classification and parameters)
-        analysis = analyze_signal(sig, sample_rate, modulation=modulation)
+        analysis = analyze_signal(sig, sample_rate, modulation=modulation, trim_burst=True)
         clf_res = analysis.classification
         mod = clf_res["modulation"]
         conf = float(clf_res["confidence"])
@@ -71,12 +71,16 @@ async def decode_signal(
         fc = float(params["center_frequency_hz"])
 
         # 3. Demodulate signal
+        demod_signal = analysis.demod_baseband if analysis.demod_baseband is not None else analysis.baseband_signal
         demod_res = demodulator.demodulate_signal(
-            analysis.baseband_signal,
+            demod_signal,
             fs=sample_rate,
             modulation=mod,
             center_freq=0.0,
             baud_rate=baud_rate if baud_rate > 0 else None,
+            matched_filter_mode="auto",
+            cfo_mode="auto",
+            max_symbols=None,
         )
 
         raw_bits = demod_res["bits"]
@@ -241,7 +245,9 @@ async def decode_signal(
             synchronized_bits=synchronized_bits.tolist(),
             fec_decoder_result=fec_metadata,
             errors_corrected=(fec_res.get("errors_corrected", fec_res.get("corrected_errors")) if fec_res else None),
-            demodulation_quality={"evm_db": float(demod_res["evm_db"]), "evm_percent": float(demod_res["evm_percent"]), "snr_db": float(params["snr_db"])},
+            demodulation_quality=build_demodulation_quality(
+                demod_res, float(params["snr_db"])
+            ),
             fec_ran=fec_ran,
         )
 

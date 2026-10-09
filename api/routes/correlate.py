@@ -2,14 +2,15 @@ import numpy as np
 from fastapi import APIRouter, UploadFile, File, Query, HTTPException, Body
 from typing import Optional, List, Dict, Any
 
-from ps26147_toolkit import classifier, parameter_extractor, demodulator, fec_decoders, deinterleaver, correlator
+from ps26147_toolkit import demodulator, fec_decoders, deinterleaver, correlator
+from ps26147_toolkit.analysis import analyze_signal
 from api.schemas import (
     CorrelateResponse,
     CorrelatedFrame,
     PreambleDiscoveryResult,
     CorrelateRequest,
 )
-from api.utils import load_signal_from_bytes
+from api.utils import build_demodulation_quality, load_signal_from_bytes
 
 router = APIRouter()
 
@@ -189,7 +190,7 @@ async def correlate_signal_file(
     frame_length: Optional[int] = Query(None, description="Expected frame length in bits (optional)"),
     threshold: float = Query(0.80, description="Correlation threshold (0.0 to 1.0)"),
     tolerate_inverted: bool = Query(True, description="Tolerate 180° carrier phase inversion"),
-    fs: float = Query(1_000_000.0, description="Target WAV sample rate; default sample rate for IQ data"),
+    fs: Optional[float] = Query(None, description="Optional sample rate override for WAV or raw IQ data"),
     fec_scheme: str = Query("none", description="FEC Scheme: 'none', 'viterbi', 'reed-solomon', 'concatenated', 'ldpc'"),
     auto_deinterleave: bool = Query(True, description="Auto deinterleave demodulated bitstream"),
     auto_discover: bool = Query(True, description="Run automatic preamble discovery"),
@@ -199,23 +200,23 @@ async def correlate_signal_file(
         contents = await file.read()
         sig, sample_rate = load_signal_from_bytes(contents, file.filename or "", default_fs=fs, target_fs=fs)
 
-        # 1. Classify modulation
-        clf = classifier.ModulationClassifier()
-        clf_res = clf.predict_with_confidence(sig, fs=sample_rate)
-        mod = clf_res["modulation"]
-
-        # 2. Extract parameters
-        params = parameter_extractor.extract_signal_parameters(sig, fs=sample_rate, modulation=mod)
+        # Use the same burst-aware classification and parameter analysis as other upload routes.
+        analysis = analyze_signal(sig, sample_rate, trim_burst=True)
+        mod = analysis.classification["modulation"]
+        params = analysis.parameters
         baud_rate = float(params["baud_rate"])
-        fc = float(params["center_frequency_hz"])
 
         # 3. Demodulate signal
+        demod_signal = analysis.demod_baseband if analysis.demod_baseband is not None else analysis.baseband_signal
         demod_res = demodulator.demodulate_signal(
-            sig,
+            demod_signal,
             fs=sample_rate,
             modulation=mod,
-            center_freq=fc,
+            center_freq=0.0,
             baud_rate=baud_rate if baud_rate > 0 else None,
+            matched_filter_mode="auto",
+            cfo_mode="auto",
+            max_symbols=None,
         )
         raw_bits = demod_res["bits"]
         llr = demod_res.get("llr")
@@ -234,7 +235,7 @@ async def correlate_signal_file(
                 bits_for_sync = deint_res["bits"]
 
         # 6. Correlation & Frame Synchronization
-        return _correlate_bitstream_core(
+        result = _correlate_bitstream_core(
             bits=np.asarray(bits_for_sync, dtype=np.uint8),
             sync_word=sync_word,
             frame_length=frame_length,
@@ -242,6 +243,10 @@ async def correlate_signal_file(
             tolerate_inverted=tolerate_inverted,
             auto_discover=auto_discover,
         )
+        result.demodulation_quality = build_demodulation_quality(
+            demod_res, float(params["snr_db"])
+        )
+        return result
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Correlation error: {str(e)}")

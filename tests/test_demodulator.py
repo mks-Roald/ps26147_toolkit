@@ -602,6 +602,33 @@ class TestDemodulateEdgeCases:
         )
         assert len(result["bits"]) > 0
 
+    def test_auto_matched_filter_returns_selected_front_end(self):
+        sps = 8
+        fs = sps * 1e6
+        signal, _ = generate_modulated_signal("QPSK", 300, sps, snr_db=20.0)
+
+        result = demodulate_signal(
+            signal, fs, "QPSK", baud_rate=1e6, matched_filter_mode="auto"
+        )
+
+        assert len(result["bits"]) > 0
+        assert np.isfinite(result["evm_percent"])
+        assert result["front_end_beta"] in (None, 0.25, 0.35, 0.5)
+
+    def test_auto_cfo_reports_offset_for_qpsk(self):
+        sps = 8
+        fs = sps * 1e6
+        baud_rate = 1e6
+        signal, _ = generate_modulated_signal(
+            "QPSK", 1200, sps, snr_db=25.0, cfo_hz=0.02
+        )
+
+        result = demodulate_signal(
+            signal, fs, "QPSK", baud_rate=baud_rate, cfo_mode="auto"
+        )
+
+        assert abs(result["cfo_corrected_hz"] - 20_000.0) < 3_000.0
+
     def test_no_baud_rate_passthrough(self):
         """No baud_rate → symbols pass through without timing recovery."""
         num_symbols = 200
@@ -613,15 +640,15 @@ class TestDemodulateEdgeCases:
         assert len(result["bits"]) > 0
 
     def test_max_symbols_cap(self):
-        """Signal longer than 4096 samples is capped."""
+        """Plot output can be capped separately from a full decode."""
         sps = 8
         fs = sps * 1e6
         baud_rate = 1e6
-        # Generate a long signal (6000 symbols → 48000 samples > 4096)
         signal, _ = generate_modulated_signal("BPSK", 6000, sps, snr_db=20.0)
-        result = demodulate_signal(signal, fs, "BPSK", baud_rate=baud_rate)
-        # Result should have ≤ 4096 symbols (capped)
-        assert len(result["symbols"]) <= 4096
+        full = demodulate_signal(signal, fs, "BPSK", baud_rate=baud_rate, max_symbols=None)
+        plot = demodulate_signal(signal, fs, "BPSK", baud_rate=baud_rate, max_symbols=1600)
+        assert len(full["symbols"]) > 4096
+        assert len(plot["symbols"]) <= 1600
 
     def test_zero_energy_normalization(self):
         """Zero-energy symbols skip normalization (p_avg ≤ 1e-12)."""

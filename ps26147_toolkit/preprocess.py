@@ -259,24 +259,37 @@ def load_iq(
 # WAV loader (returns metadata too)
 # ---------------------------------------------------------------------------
 
+def _wav_to_signal(sig: np.ndarray, stereo: str = "mean") -> np.ndarray:
+    """Convert WAV samples to normalized real or complex signal data."""
+    if stereo not in ("mean", "iq"):
+        raise ValueError("stereo must be 'mean' or 'iq'")
+
+    orig_dtype = sig.dtype
+    out = sig.astype(np.float32)
+    if np.issubdtype(orig_dtype, np.integer):
+        out = out / np.iinfo(orig_dtype).max
+
+    if out.ndim > 1:
+        if out.shape[1] == 2 and stereo == "iq":
+            return (out[:, 0] + 1j * out[:, 1]).astype(np.complex64)
+        out = np.mean(out, axis=1).astype(np.float32)
+    return out
+
+
 def load_wav(
     file_path: str | Path,
     center_freq_hint: float = 0.0,
+    stereo: str = "mean",
 ) -> tuple[np.ndarray, SignalMetadata]:
     """Load a ``.wav`` audio file.
 
-    Returns a mono ``float32`` signal and associated :class:`SignalMetadata`.
+    Returns a mono ``float32`` signal by default. Set ``stereo="iq"`` to read
+    two-channel WAV files as I/Q and return ``complex64`` samples.
     """
     file_path = Path(file_path)
-    sr, sig = wav.read(str(file_path))
-
-    if sig.ndim > 1:
-        sig = np.mean(sig, axis=1)
-
-    orig_dtype = sig.dtype
-    sig = sig.astype(np.float32)
-    if np.issubdtype(orig_dtype, np.integer):
-        sig = sig / np.iinfo(orig_dtype).max
+    sr, raw = wav.read(str(file_path))
+    orig_dtype = raw.dtype
+    sig = _wav_to_signal(raw, stereo=stereo)
 
     meta = SignalMetadata(
         fs=float(sr),
@@ -376,3 +389,51 @@ def segment_signal(
         sig[start : start + segment_len]
         for start in range(0, len(sig) - segment_len + 1, step)
     ]
+
+
+def trim_active_burst(
+    sig: np.ndarray,
+    min_contrast_db: float = 6.0,
+    min_samples: int = 256,
+) -> tuple[np.ndarray, dict[str, int | float | bool]]:
+    """Trim clear low-energy margins while leaving continuous captures intact."""
+    from scipy.ndimage import uniform_filter1d
+
+    signal = np.asarray(sig)
+    n = len(signal)
+    info: dict[str, int | float | bool] = {
+        "trimmed": False,
+        "start": 0,
+        "stop": n,
+        "original_length": n,
+        "contrast_db": 0.0,
+    }
+    if n < 4 * min_samples:
+        return signal, info
+
+    power = np.abs(signal) ** 2
+    window = int(max(16, min(n // 512, 256)))
+    envelope = uniform_filter1d(power.astype(np.float64), size=window, mode="nearest")
+    noise = float(np.percentile(envelope, 5))
+    peak = float(np.percentile(envelope, 95))
+    if not np.isfinite(noise) or not np.isfinite(peak) or peak <= 0:
+        return signal, info
+
+    noise = max(noise, peak * 1e-12)
+    contrast_db = float(10.0 * np.log10(peak / noise))
+    info["contrast_db"] = contrast_db
+    if contrast_db < min_contrast_db:
+        return signal, info
+
+    threshold = np.sqrt(noise * peak)
+    active = np.flatnonzero(envelope > threshold)
+    if active.size == 0:
+        return signal, info
+
+    start = max(0, int(active[0]) - window)
+    stop = min(n, int(active[-1]) + window + 1)
+    if stop - start < min_samples or stop - start > 0.9 * n:
+        return signal, info
+
+    info.update({"trimmed": True, "start": start, "stop": stop})
+    return signal[start:stop], info

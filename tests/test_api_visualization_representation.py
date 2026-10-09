@@ -40,8 +40,8 @@ def _signal(modulation: str) -> bytes:
 def test_psk_qam_api_returns_recovered_symbols_never_waveform_as_constellation(monkeypatch, modulation):
     original = analysis_module.analyze_signal
 
-    def analyze(signal, fs, modulation=None):
-        result = original(signal, fs, modulation)
+    def analyze(signal, fs, modulation=None, **kwargs):
+        result = original(signal, fs, modulation, **kwargs)
         result.classification = dict(result.classification, modulation=modulation_name, confidence=1.0)
         return result
 
@@ -64,8 +64,8 @@ def test_psk_qam_api_returns_recovered_symbols_never_waveform_as_constellation(m
 def test_fsk_api_returns_frequency_visualization_and_no_constellation(monkeypatch, modulation, state_count):
     original = analysis_module.analyze_signal
 
-    def analyze(signal, fs, modulation=None):
-        result = original(signal, fs, modulation)
+    def analyze(signal, fs, modulation=None, **kwargs):
+        result = original(signal, fs, modulation, **kwargs)
         result.classification = dict(result.classification, modulation=modulation_name, confidence=1.0)
         return result
 
